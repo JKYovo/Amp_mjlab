@@ -28,6 +28,10 @@ _MOTION_DATA_DIR = os.path.normpath(
   )
 )
 
+_MOTION_DATA_V2_DIR = os.path.join(
+  os.path.dirname(_MOTION_DATA_DIR), "amp_v2_balanced"
+)
+
 
 def elf3_amp_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   """Create the native ELF3 AMP/PPO runner configuration."""
@@ -83,4 +87,13 @@ def elf3_amp_loco_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg = elf3_amp_ppo_runner_cfg()
   cfg.run_name = "loco_pretrain"
   cfg.amp_motion_files = os.path.join(_MOTION_DATA_DIR, "WalkandRun")
+  return cfg
+
+
+def elf3_amp_v2_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Create a fresh-run configuration for the isolated balanced-v2 dataset."""
+  cfg = elf3_amp_ppo_runner_cfg()
+  cfg.experiment_name = "elf3_amp_locomotion_v2"
+  cfg.run_name = "balanced_fresh"
+  cfg.amp_motion_files = _MOTION_DATA_V2_DIR
   return cfg

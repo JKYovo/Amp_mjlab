@@ -65,6 +65,53 @@ def _inline_external_onnx_data(onnx_path: str) -> None:
 class AMPOnPolicyRunner(AmpOnPolicyRunner):
   env: RslRlVecEnvWrapper
 
+  def _restore_step_curricula(self) -> None:
+    """Apply curricula derived from the restored global environment step."""
+    env = self.env.unwrapped
+    manager = env.curriculum_manager
+    for term_name in manager.active_terms:
+      term_cfg = manager.get_term_cfg(term_name)
+      # These curricula are pure functions of common_step_counter.  Do not
+      # recompute performance-driven terrain curricula on a newly created env.
+      if term_cfg.func.__name__ not in {"commands_vel", "reward_weight"}:
+        continue
+      state = term_cfg.func(env, slice(None), **term_cfg.params)
+      manager._curriculum_state[term_name] = state
+
+    # Environment construction sampled commands before checkpoint loading,
+    # using the stage-zero ranges.  Resample once so the first resumed rollout
+    # already uses the restored stage instead of waiting 3--8 seconds.
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    env.command_manager.reset(env_ids)
+
+  def load(self, path: str, load_optimizer: bool = True):
+    """Load policy state and restore the environment's curriculum clock."""
+    infos = super().load(path, load_optimizer=load_optimizer)
+    env_state = infos.get("env_state", {}) if isinstance(infos, dict) else {}
+    if "common_step_counter" in env_state:
+      common_step_counter = int(env_state["common_step_counter"])
+      source = "checkpoint"
+    else:
+      # Legacy AMP checkpoints did not persist environment state.  A checkpoint
+      # named iteration N is written after completing that iteration.
+      common_step_counter = (
+        int(self.current_learning_iteration) + 1
+      ) * int(self.num_steps_per_env)
+      source = "iteration fallback"
+
+    env = self.env.unwrapped
+    env.common_step_counter = common_step_counter
+    if "sim_step_counter" in env_state:
+      env._sim_step_counter = int(env_state["sim_step_counter"])
+    else:
+      env._sim_step_counter = common_step_counter * int(env.cfg.decimation)
+    self._restore_step_curricula()
+    print(
+      "[INFO] Restored curriculum clock: "
+      f"common_step_counter={common_step_counter} ({source})"
+    )
+    return infos
+
   def _export_policy_to_onnx(self, path: str, filename: str = "policy.onnx"):
     """Export the actor network to ONNX using the local ActorCritic model.
     
@@ -102,7 +149,13 @@ class AMPOnPolicyRunner(AmpOnPolicyRunner):
       obs_normalizer.to(self.device)
 
   def save(self, path: str, infos=None):
-    super().save(path, infos)
+    env = self.env.unwrapped
+    checkpoint_infos = dict(infos or {})
+    checkpoint_infos["env_state"] = {
+      "common_step_counter": int(env.common_step_counter),
+      "sim_step_counter": int(env._sim_step_counter),
+    }
+    super().save(path, checkpoint_infos)
     policy_path = path.split("model")[0]
     filename = "policy.onnx"
     self._export_policy_to_onnx(policy_path, filename)

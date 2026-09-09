@@ -195,3 +195,27 @@ def elf3_amp_flat_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["init_motion_loader"].params["delay_reset_env_ratio"] = 0.0
   cfg.events["init_motion_loader"].params["max_delay_steps"] = 0
   return cfg
+
+
+def elf3_amp_flat_v2_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create the flat ELF3 task backed by the isolated balanced-v2 motions."""
+  cfg = elf3_amp_flat_env_cfg(play=play)
+  motion_base = os.path.abspath(
+    os.path.join(
+      os.path.dirname(__file__),
+      "..",
+      "..",
+      "..",
+      "..",
+      "assets",
+      "motions",
+      "elf3",
+      "amp_v2_balanced",
+    )
+  )
+  motion_dir = os.path.join(motion_base, "WalkandRun")
+  recovery_dir = os.path.join(motion_base, "Recovery")
+  cfg.events["init_motion_loader"].params["motion_dir"] = motion_dir
+  cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
+  cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
+  return cfg
