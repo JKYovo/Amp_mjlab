@@ -25,10 +25,16 @@ class TrainConfig:
   env: ManagerBasedRlEnvCfg
   agent: RslRlBaseRunnerCfg
   motion_file: str | None = None
+  log_dir: str | None = None
+  target_iteration: int | None = None
   video: bool = False
   video_length: int = 200
   video_interval: int = 2000
   enable_nan_guard: bool = False
+  swanlab_project: str | None = None
+  swanlab_experiment_name: str | None = None
+  swanlab_id: str | None = None
+  swanlab_resume: Literal["must", "allow", "never"] = "never"
   torchrunx_log_dir: str | None = None
   gpu_ids: list[int] | Literal["all"] | None = field(default_factory=lambda: [0])
 
@@ -89,57 +95,101 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   if rank == 0:
     print(f"[INFO] Logging experiment in directory: {log_dir}")
 
-  env = ManagerBasedRlEnv(
-    cfg=cfg.env, device=device, render_mode="rgb_array" if cfg.video else None
-  )
+  swanlab_run = None
+  if cfg.swanlab_project is not None and rank == 0:
+    import swanlab
 
-  log_root_path = log_dir.parent  # Go up from specific run dir to experiment dir.
+    swanlab_run = swanlab.init(
+      project=cfg.swanlab_project,
+      name=cfg.swanlab_experiment_name or log_dir.name,
+      id=cfg.swanlab_id,
+      resume=cfg.swanlab_resume,
+      log_dir=str(log_dir / "swanlab"),
+      config={
+        "task": task_id,
+        "num_envs": cfg.env.scene.num_envs,
+        "seed": seed,
+        "max_iterations": cfg.agent.max_iterations,
+        "amp_motion_files": getattr(cfg.agent, "amp_motion_files", None),
+      },
+    )
+    # RSL-RL already writes every scalar through torch SummaryWriter. SwanLab's
+    # official bridge mirrors those calls online without maintaining a second
+    # metric-name implementation here.
+    swanlab.sync_tensorboard_torch()
+    print(f"[INFO] SwanLab experiment: {swanlab_run.url}")
 
-  resume_path: Path | None = None
-  if cfg.agent.resume:
+  env = None
+  try:
+    env = ManagerBasedRlEnv(
+      cfg=cfg.env, device=device, render_mode="rgb_array" if cfg.video else None
+    )
+
+    log_root_path = log_dir.parent  # Go up from specific run dir to experiment dir.
+
+    resume_path: Path | None = None
+    if cfg.agent.resume:
       # Load checkpoint from local filesystem.
       resume_path = get_checkpoint_path(
         log_root_path, cfg.agent.load_run, cfg.agent.load_checkpoint
       )
 
-  # Only record videos on rank 0 to avoid multiple workers writing to the same files.
-  if cfg.video and rank == 0:
-    env = VideoRecorder(  # 写一个自己的包装器，用于motion tracking
-      env,
-      video_folder=Path(log_dir) / "videos" / "train",
-      step_trigger=lambda step: step % cfg.video_interval == 0,
-      video_length=cfg.video_length,
-      disable_logger=True,
+    # Only record videos on rank 0 to avoid multiple workers writing to the same files.
+    if cfg.video and rank == 0:
+      env = VideoRecorder(  # 写一个自己的包装器，用于motion tracking
+        env,
+        video_folder=Path(log_dir) / "videos" / "train",
+        step_trigger=lambda step: step % cfg.video_interval == 0,
+        video_length=cfg.video_length,
+        disable_logger=True,
+      )
+      print("[INFO] Recording videos during training.")
+
+    env = RslRlVecEnvWrapper(env, clip_actions=cfg.agent.clip_actions) # 因为我要接上自己的rsl_rl，所以要重新写一个包装器
+
+    agent_cfg = asdict(cfg.agent)
+    env_cfg = asdict(cfg.env)
+
+    runner_cls = load_runner_cls(task_id)
+    if runner_cls is None:
+      runner_cls = MjlabOnPolicyRunner
+
+    runner_kwargs = {}
+    runner = runner_cls(env, agent_cfg, str(log_dir), device, **runner_kwargs)
+
+    runner.add_git_repo_to_log(__file__)
+    if resume_path is not None:
+      print(f"[INFO]: Loading model checkpoint from: {resume_path}")
+      runner.load(str(resume_path))
+
+    # Only write config files from rank 0 to avoid race conditions.
+    if rank == 0:
+      dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
+      dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
+
+    num_learning_iterations = cfg.agent.max_iterations
+    if cfg.target_iteration is not None:
+      num_learning_iterations = cfg.target_iteration - runner.current_learning_iteration
+      if num_learning_iterations <= 0:
+        print(
+          f"[INFO] Target iteration {cfg.target_iteration} already reached "
+          f"(checkpoint iteration: {runner.current_learning_iteration})."
+        )
+        return
+      print(
+        f"[INFO] Resuming at iteration {runner.current_learning_iteration}; "
+        f"training {num_learning_iterations} iterations to target "
+        f"{cfg.target_iteration}."
+      )
+
+    runner.learn(
+      num_learning_iterations=num_learning_iterations, init_at_random_ep_len=True
     )
-    print("[INFO] Recording videos during training.")
-
-  env = RslRlVecEnvWrapper(env, clip_actions=cfg.agent.clip_actions) # 因为我要接上自己的rsl_rl，所以要重新写一个包装器
-
-  agent_cfg = asdict(cfg.agent)
-  env_cfg = asdict(cfg.env)
-
-  runner_cls = load_runner_cls(task_id)
-  if runner_cls is None:
-    runner_cls = MjlabOnPolicyRunner   # 
-
-  runner_kwargs = {}
-  runner = runner_cls(env, agent_cfg, str(log_dir), device, **runner_kwargs)
-
-  runner.add_git_repo_to_log(__file__)
-  if resume_path is not None:
-    print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-    runner.load(str(resume_path))
-
-  # Only write config files from rank 0 to avoid race conditions.
-  if rank == 0:
-    dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
-    dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
-
-  runner.learn(
-    num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=True
-  )
-
-  env.close()
+  finally:
+    if env is not None:
+      env.close()
+    if swanlab_run is not None:
+      swanlab_run.finish()
 
 
 def launch_training(task_id: str, args: TrainConfig | None = None):
@@ -148,10 +198,13 @@ def launch_training(task_id: str, args: TrainConfig | None = None):
   # Create log directory once before launching workers.
   log_root_path = Path("logs") / "rsl_rl" / args.agent.experiment_name
   log_root_path.resolve()
-  log_dir_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-  if args.agent.run_name:
-    log_dir_name += f"_{args.agent.run_name}"
-  log_dir = log_root_path / log_dir_name
+  if args.log_dir is not None:
+    log_dir = Path(args.log_dir).expanduser().resolve()
+  else:
+    log_dir_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if args.agent.run_name:
+      log_dir_name += f"_{args.agent.run_name}"
+    log_dir = log_root_path / log_dir_name
 
   # Select GPUs based on CUDA_VISIBLE_DEVICES and user specification.
   selected_gpus, num_gpus = select_gpus(args.gpu_ids)

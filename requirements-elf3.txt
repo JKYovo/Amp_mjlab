@@ -1,0 +1,25 @@
+# Versions validated on the ELF3 training host (2026-09-09).
+# Install the repository's ./rsl_rl editable package after this file. It is the
+# AMP-capable fork used by this project and intentionally replaces the rsl_rl
+# distribution pulled in by mjlab.
+torch==2.14.0
+torchvision==0.29.0
+numpy==2.4.6
+scipy==1.17.0
+mjlab==1.2.0
+mujoco==3.12.0
+mujoco-warp==3.8.1
+warp-lang==1.12.0
+tyro==1.0.16
+tensorboard==2.21.0
+torchrunx==0.4.0
+swanlab==0.8.5
+onnx==1.22.0
+onnxscript==0.7.1
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+mediapy==1.2.7
+glfw==2.10.2
+PyOpenGL==3.1.10
+trimesh==4.12.2
+PyYAML==6.0.3

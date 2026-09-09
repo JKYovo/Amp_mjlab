@@ -33,12 +33,12 @@ Thumbs.db
 
 # Project local outputs and datasets
 logs/
+artifacts/
 motion_data_npz/
 motion_data_csv/lafan1
 rsl_rl_lib.egg-info/
 rsl_rl/modules/transformer_bp.py
 rsl_rl/modules/transformer.py
 src/tasks/uni_track
-
 
 

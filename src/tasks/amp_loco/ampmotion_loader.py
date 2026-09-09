@@ -17,6 +17,8 @@ class MotionLoader:
         feet_indexes: int,
         device: str = "cpu",
         recovery_dir: str | None = None,
+        expected_joint_names: Sequence[str] | None = None,
+        expected_body_names: Sequence[str] | None = None,
     ):
         # 存储所有运动数据的列表
         self.motion_data: list[dict] = []
@@ -24,12 +26,22 @@ class MotionLoader:
         self.motion_data_recovery: list[dict] = []
 
         # 加载正常运动数据
-        self.motion_data = self._load_dir(motion_dir, device)
+        self.motion_data = self._load_dir(
+            motion_dir,
+            device,
+            expected_joint_names=expected_joint_names,
+            expected_body_names=expected_body_names,
+        )
         assert len(self.motion_data) > 0, f"No npz files found in: {motion_dir}"
 
         # 加载恢复运动数据
         if recovery_dir is not None and os.path.isdir(recovery_dir):
-            self.motion_data_recovery = self._load_dir(recovery_dir, device)
+            self.motion_data_recovery = self._load_dir(
+                recovery_dir,
+                device,
+                expected_joint_names=expected_joint_names,
+                expected_body_names=expected_body_names,
+            )
 
         self.motion_names = [m["motion_name"] for m in self.motion_data + self.motion_data_recovery]
 
@@ -53,7 +65,12 @@ class MotionLoader:
         self.motion_total_time = self.time_step_total / self.fps
 
     @staticmethod
-    def _load_dir(dir_path: str, device: str) -> list[dict]:
+    def _load_dir(
+        dir_path: str,
+        device: str,
+        expected_joint_names: Sequence[str] | None = None,
+        expected_body_names: Sequence[str] | None = None,
+    ) -> list[dict]:
         """从目录中加载所有 .npz 文件并返回运动数据列表。"""
         assert os.path.isdir(dir_path), f"Not a directory: {dir_path}"
         result = []
@@ -61,17 +78,65 @@ class MotionLoader:
             if not filename.endswith(".npz"):
                 continue
             motion_name = os.path.splitext(filename)[0]
-            data = np.load(os.path.join(dir_path, filename))
-            result.append({
-                "motion_name": motion_name,
-                "fps": data["fps"],
-                "dof_pos": torch.tensor(data["joint_pos"], dtype=torch.float32, device=device),
-                "dof_vel": torch.tensor(data["joint_vel"], dtype=torch.float32, device=device),
-                "body_pos_w": torch.tensor(data["body_pos_w"], dtype=torch.float32, device=device),
-                "body_quat_w": torch.tensor(data["body_quat_w"], dtype=torch.float32, device=device),
-                "body_lin_vel_w": torch.tensor(data["body_lin_vel_w"], dtype=torch.float32, device=device),
-                "body_ang_vel_w": torch.tensor(data["body_ang_vel_w"], dtype=torch.float32, device=device),
-            })
+            path = os.path.join(dir_path, filename)
+            with np.load(path, allow_pickle=False) as data:
+                joint_pos = data["joint_pos"]
+                joint_vel = data["joint_vel"]
+                body_pos_w = data["body_pos_w"]
+                body_quat_w = data["body_quat_w"]
+                body_lin_vel_w = data["body_lin_vel_w"]
+                body_ang_vel_w = data["body_ang_vel_w"]
+
+                if expected_joint_names is not None:
+                    file_joint_names = (
+                        tuple(str(name) for name in data["joint_names"].tolist())
+                        if "joint_names" in data.files
+                        else None
+                    )
+                    if file_joint_names is not None:
+                        try:
+                            joint_ids = [file_joint_names.index(name) for name in expected_joint_names]
+                        except ValueError as exc:
+                            raise ValueError(f"{path}: joint-name contract mismatch") from exc
+                        joint_pos = joint_pos[:, joint_ids]
+                        joint_vel = joint_vel[:, joint_ids]
+                    elif joint_pos.shape[1] != len(expected_joint_names):
+                        raise ValueError(
+                            f"{path}: expected {len(expected_joint_names)} joints, "
+                            f"got {joint_pos.shape[1]}"
+                        )
+
+                if expected_body_names is not None:
+                    file_body_names = (
+                        tuple(str(name) for name in data["body_names"].tolist())
+                        if "body_names" in data.files
+                        else None
+                    )
+                    if file_body_names is not None:
+                        try:
+                            body_ids = [file_body_names.index(name) for name in expected_body_names]
+                        except ValueError as exc:
+                            raise ValueError(f"{path}: body-name contract mismatch") from exc
+                        body_pos_w = body_pos_w[:, body_ids]
+                        body_quat_w = body_quat_w[:, body_ids]
+                        body_lin_vel_w = body_lin_vel_w[:, body_ids]
+                        body_ang_vel_w = body_ang_vel_w[:, body_ids]
+                    elif body_pos_w.shape[1] != len(expected_body_names):
+                        raise ValueError(
+                            f"{path}: expected {len(expected_body_names)} bodies, "
+                            f"got {body_pos_w.shape[1]}"
+                        )
+
+                result.append({
+                    "motion_name": motion_name,
+                    "fps": data["fps"].copy(),
+                    "dof_pos": torch.tensor(joint_pos, dtype=torch.float32, device=device),
+                    "dof_vel": torch.tensor(joint_vel, dtype=torch.float32, device=device),
+                    "body_pos_w": torch.tensor(body_pos_w, dtype=torch.float32, device=device),
+                    "body_quat_w": torch.tensor(body_quat_w, dtype=torch.float32, device=device),
+                    "body_lin_vel_w": torch.tensor(body_lin_vel_w, dtype=torch.float32, device=device),
+                    "body_ang_vel_w": torch.tensor(body_ang_vel_w, dtype=torch.float32, device=device),
+                })
         return result
 
     def _get_motion_data(self, motion_index: int = None):

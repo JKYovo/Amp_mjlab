@@ -65,17 +65,36 @@ class AMPLoader:
         # 处理每个motion文件
         for motion_idx, (motion_name, motion_path) in enumerate(zip(motion_names, motion_files)):
             print(f"Processing motion {motion_idx+1}/{len(motion_files)}: {motion_name}")
-            data = np.load(motion_path)
-            
-            if motion_idx == 0:
-                self.fps = data["fps"]
-            
-            _dof_pos = torch.tensor(data["joint_pos"], dtype=torch.float32, device=device)
-            _dof_vel = torch.tensor(data["joint_vel"], dtype=torch.float32, device=device)
-            _body_pos_w = torch.tensor(data["body_pos_w"], dtype=torch.float32, device=device)
-            _body_quat_w = torch.tensor(data["body_quat_w"], dtype=torch.float32, device=device)
-            _body_lin_vel_w = torch.tensor(data["body_lin_vel_w"], dtype=torch.float32, device=device)
-            _body_ang_vel_w = torch.tensor(data["body_ang_vel_w"], dtype=torch.float32, device=device)
+            with np.load(motion_path, allow_pickle=False) as data:
+                if motion_idx == 0:
+                    self.fps = data["fps"].copy()
+
+                body_pos_w = data["body_pos_w"]
+                body_quat_w = data["body_quat_w"]
+                body_lin_vel_w = data["body_lin_vel_w"]
+                body_ang_vel_w = data["body_ang_vel_w"]
+                if "body_names" in data.files:
+                    file_body_names = tuple(str(name) for name in data["body_names"].tolist())
+                    try:
+                        body_order = [file_body_names.index(name) for name in all_names_list]
+                    except ValueError as exc:
+                        raise ValueError(f"{motion_path}: body-name contract mismatch") from exc
+                    body_pos_w = body_pos_w[:, body_order]
+                    body_quat_w = body_quat_w[:, body_order]
+                    body_lin_vel_w = body_lin_vel_w[:, body_order]
+                    body_ang_vel_w = body_ang_vel_w[:, body_order]
+                elif body_pos_w.shape[1] != len(all_names_list):
+                    raise ValueError(
+                        f"{motion_path}: expected {len(all_names_list)} bodies, "
+                        f"got {body_pos_w.shape[1]}"
+                    )
+
+                _dof_pos = torch.tensor(data["joint_pos"], dtype=torch.float32, device=device)
+                _dof_vel = torch.tensor(data["joint_vel"], dtype=torch.float32, device=device)
+                _body_pos_w = torch.tensor(body_pos_w, dtype=torch.float32, device=device)
+                _body_quat_w = torch.tensor(body_quat_w, dtype=torch.float32, device=device)
+                _body_lin_vel_w = torch.tensor(body_lin_vel_w, dtype=torch.float32, device=device)
+                _body_ang_vel_w = torch.tensor(body_ang_vel_w, dtype=torch.float32, device=device)
             
             time_step_total = _dof_pos.shape[0]
             
