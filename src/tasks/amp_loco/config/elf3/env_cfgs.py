@@ -20,6 +20,7 @@ from src.assets.robots.elf3.elf3_constants import (
   get_elf3_robot_cfg,
 )
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
+from src.tasks.amp_loco.mdp.command import TurningVelocityCommandCfg
 
 
 def elf3_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -200,6 +201,29 @@ def elf3_amp_flat_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 def elf3_amp_flat_v2_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the flat ELF3 task backed by the isolated balanced-v2 motions."""
   cfg = elf3_amp_flat_env_cfg(play=play)
+
+  # Explicitly cover pure-yaw commands instead of relying on the very small
+  # chance that two independently sampled linear velocities are both near zero.
+  # Modes are mutually exclusive: 5% standing, 15% in-place turning, and 80%
+  # mixed translation/turning. Existing reward weights and widths are unchanged.
+  base_twist = cfg.commands["twist"]
+  assert isinstance(base_twist, UniformVelocityCommandCfg)
+  cfg.commands["twist"] = TurningVelocityCommandCfg(
+    entity_name=base_twist.entity_name,
+    resampling_time_range=base_twist.resampling_time_range,
+    heading_command=base_twist.heading_command,
+    heading_control_stiffness=base_twist.heading_control_stiffness,
+    rel_standing_envs=0.05,
+    rel_heading_envs=base_twist.rel_heading_envs,
+    init_velocity_prob=base_twist.init_velocity_prob,
+    rel_turning_envs=0.15,
+    turning_min_abs_ang_vel=0.3,
+    turning_max_abs_ang_vel=1.0,
+    debug_vis=base_twist.debug_vis,
+    ranges=base_twist.ranges,
+    viz=base_twist.viz,
+  )
+
   motion_base = os.path.abspath(
     os.path.join(
       os.path.dirname(__file__),
