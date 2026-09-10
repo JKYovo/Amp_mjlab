@@ -108,7 +108,4 @@ def elf3_amp_v3_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg.experiment_name = "elf3_amp_locomotion_v3"
   cfg.run_name = "v3_from_v2"
   cfg.amp_motion_files = _MOTION_DATA_V3_DIR
-  # V2's adaptive optimizer has already decayed to about 5e-5.  V3 resumes the
-  # learned policy/discriminator with a fresh, conservative fine-tuning rate.
-  cfg.algorithm.learning_rate = 2.0e-4
   return cfg
