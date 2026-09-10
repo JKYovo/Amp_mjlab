@@ -243,3 +243,40 @@ def elf3_amp_flat_v2_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
   cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
   return cfg
+
+
+def elf3_amp_flat_v3_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Fine-tune V2 with balanced lateral motions and stronger pure turns."""
+  cfg = elf3_amp_flat_v2_env_cfg(play=play)
+
+  twist_cmd = cfg.commands["twist"]
+  assert isinstance(twist_cmd, TurningVelocityCommandCfg)
+  # Mixed walking/running commands keep the V2 yaw envelope in ranges.  Only
+  # the dedicated zero-linear-velocity subset is expanded to +/-2 rad/s.
+  twist_cmd.ranges.ang_vel_z = (-1.0, 1.0)
+  twist_cmd.turning_max_abs_ang_vel = 2.0
+
+  # Preserve the original G1 width for mixed locomotion.  A moderately narrower
+  # width is selected inside the existing reward only for dedicated pure turns;
+  # this does not add a second reward or a second dashboard series.
+  cfg.rewards["track_anchor_angular_velocity"].params["turning_std"] = 2.0
+
+  motion_base = os.path.abspath(
+    os.path.join(
+      os.path.dirname(__file__),
+      "..",
+      "..",
+      "..",
+      "..",
+      "assets",
+      "motions",
+      "elf3",
+      "amp_v3",
+    )
+  )
+  motion_dir = os.path.join(motion_base, "WalkandRun")
+  recovery_dir = os.path.join(motion_base, "Recovery")
+  cfg.events["init_motion_loader"].params["motion_dir"] = motion_dir
+  cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
+  cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
+  return cfg

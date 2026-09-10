@@ -31,6 +31,9 @@ _MOTION_DATA_DIR = os.path.normpath(
 _MOTION_DATA_V2_DIR = os.path.join(
   os.path.dirname(_MOTION_DATA_DIR), "amp_v2_balanced"
 )
+_MOTION_DATA_V3_DIR = os.path.join(
+  os.path.dirname(_MOTION_DATA_DIR), "amp_v3"
+)
 
 
 def elf3_amp_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
@@ -96,4 +99,16 @@ def elf3_amp_v2_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg.experiment_name = "elf3_amp_locomotion_v2"
   cfg.run_name = "balanced_fresh"
   cfg.amp_motion_files = _MOTION_DATA_V2_DIR
+  return cfg
+
+
+def elf3_amp_v3_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Create the V3 fine-tuning configuration backed by V3 motions."""
+  cfg = elf3_amp_ppo_runner_cfg()
+  cfg.experiment_name = "elf3_amp_locomotion_v3"
+  cfg.run_name = "v3_from_v2"
+  cfg.amp_motion_files = _MOTION_DATA_V3_DIR
+  # V2's adaptive optimizer has already decayed to about 5e-5.  V3 resumes the
+  # learned policy/discriminator with a fresh, conservative fine-tuning rate.
+  cfg.algorithm.learning_rate = 2.0e-4
   return cfg

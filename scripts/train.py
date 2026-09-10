@@ -27,6 +27,7 @@ class TrainConfig:
   motion_file: str | None = None
   log_dir: str | None = None
   target_iteration: int | None = None
+  resume_optimizer: bool = True
   video: bool = False
   video_length: int = 200
   video_interval: int = 2000
@@ -160,7 +161,9 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
       print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-      runner.load(str(resume_path))
+      runner.load(str(resume_path), load_optimizer=cfg.resume_optimizer)
+      if not cfg.resume_optimizer:
+        print("[INFO] Loaded model state with a fresh optimizer.")
 
     # Only write config files from rank 0 to avoid race conditions.
     if rank == 0:

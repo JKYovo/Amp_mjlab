@@ -99,6 +99,7 @@ def track_anchor_angular_velocity(
   env: ManagerBasedRlEnv,
   std: float,
   command_name: str,
+  turning_std: float | None = None,
   mask_delay: bool = False,
   delay_env_rew_ratio: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -125,7 +126,22 @@ def track_anchor_angular_velocity(
 
   total_error = ang_vel_z_error + ang_vel_xy_error
 
-  reward = torch.exp(-total_error / std**2)
+  if turning_std is None:
+    std_sq: float | torch.Tensor = std**2
+  else:
+    command_term = env.command_manager.get_term(command_name)
+    turning_mask = getattr(command_term, "is_turning_env", None)
+    if turning_mask is None:
+      raise ValueError(
+        f"Command term '{command_name}' does not expose is_turning_env"
+      )
+    std_sq = torch.where(
+      turning_mask,
+      torch.full_like(total_error, turning_std**2),
+      torch.full_like(total_error, std**2),
+    )
+
+  reward = torch.exp(-total_error / std_sq)
   return _apply_delay_env_reward_scaling(env, reward, mask_delay, delay_env_rew_ratio)
 
 def body_ang_vel_xy_l2(
@@ -244,5 +260,4 @@ def self_collision_cost(
     return hit.sum(dim=-1).float()  # [B]
   assert data.found is not None
   return data.found.squeeze(-1)
-
 
