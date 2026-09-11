@@ -309,15 +309,17 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.sim.njmax = 768
   cfg.sim.contact_sensor_maxmatch = 1024
   cfg.curriculum.pop('terrain_levels', None)
-  # Do not let the old 5000-iteration course restore running commands.
+  # Use fixed V4 ranges rather than replaying the old curriculum clock. Keep
+  # forward/backward inside the walking envelope, while preserving the V3.1
+  # lateral and turning command scales learned by the resumed policy.
   cfg.curriculum.pop('command_vel', None)
   command = cfg.commands['twist']
   assert isinstance(command, TurningVelocityCommandCfg)
   command.ranges.lin_vel_x = (-0.6, 1.0)
-  command.ranges.lin_vel_y = (-0.5, 0.5)
-  command.ranges.ang_vel_z = (-1.57, 1.57)
-  command.ranges.heading = (-math.pi, math.pi)
-  command.turning_max_abs_ang_vel = 1.57
+  command.ranges.lin_vel_y = (-1.0, 1.0)
+  command.ranges.ang_vel_z = (-1.0, 1.0)
+  command.ranges.heading = (-math.pi / 2, math.pi / 2)
+  command.turning_max_abs_ang_vel = 2.0
 
   # Already present in V3.1: explicit local link-COM randomization, not a
   # second perturbation or a literal translation of the whole-robot COM.

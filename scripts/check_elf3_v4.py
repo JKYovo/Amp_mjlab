@@ -75,8 +75,10 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
             seen.append(command.command.clone())
         commands = torch.cat(seen)
         assert torch.all(commands[:, 0] >= -.60001) and torch.all(commands[:, 0] <= 1.00001)
-        assert torch.all(commands[:, 1].abs() <= .50001)
-        assert torch.all(commands[:, 2].abs() <= 1.57001)
+        assert torch.all(commands[:, 1].abs() <= 1.00001)
+        # Mixed locomotion uses +/-1 rad/s; the dedicated in-place-turn subset
+        # preserves V3.1's wider +/-2 rad/s envelope.
+        assert torch.all(commands[:, 2].abs() <= 2.00001)
         for step in range(steps):
             result = env.step(torch.randn(num_envs, env.action_manager.total_action_dim,
                                           device=env.device) * .03)
