@@ -606,6 +606,11 @@ class AmpOnPolicyRunner:
         if load_optimizer and resumed_training:
             # -- algorithm optimizer
             self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
+            # Adaptive KL scheduling uses this scalar, not just the optimizer
+            # groups. Otherwise its first update overwrites the restored LR
+            # with the fresh-training default.
+            self.alg.learning_rate = self.alg.optimizer.param_groups[0]["lr"]
+            print(f"[INFO] Restored adaptive learning rate: {self.alg.learning_rate:.10g}")
             # -- RND optimizer if used
             if self.alg.rnd:
                 self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])

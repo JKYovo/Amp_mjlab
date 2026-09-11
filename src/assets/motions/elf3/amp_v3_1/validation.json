@@ -1,0 +1,254 @@
+{
+  "amass_side_step_left__B22.npz": {
+    "added_joint_acceleration_max_rad_s2": 49.27817468127697,
+    "com_envelope_ratio_corrected": 0.6009577154396277,
+    "com_envelope_ratio_source": 0.5865994906496842,
+    "corrected_joint_speed_max_rad_s": 2.8775151759805673,
+    "feet": {
+      "l": {
+        "corrected_heel_fraction": 0.022727272727272728,
+        "corrected_sole_xy_speed_mean_m_s": 0.059514997029289245,
+        "corrected_toe_fraction": 0.0,
+        "source_heel_fraction": 0.9545454545454546,
+        "source_sole_xy_speed_mean_m_s": 0.05951499709739758,
+        "source_toe_fraction": 0.0,
+        "support_frames": 44
+      },
+      "r": {
+        "corrected_heel_fraction": 0.022222222222222223,
+        "corrected_sole_xy_speed_mean_m_s": 0.03863731408294346,
+        "corrected_toe_fraction": 0.0,
+        "source_heel_fraction": 0.9555555555555556,
+        "source_sole_xy_speed_mean_m_s": 0.03863731408293884,
+        "source_toe_fraction": 0.0,
+        "support_frames": 45
+      }
+    },
+    "ik_max_weighted_residual": 1.2864756811920008e-09,
+    "max_added_joint_speed_rad_s": 2.355824777525901,
+    "max_joint_change_rad": 0.2881072200752303,
+    "method": "sole-centre trajectory constrained 6-DoF leg IK",
+    "minimum_foot_collision_z_m": 0.004999999999999949,
+    "revision": "contact_ik_1",
+    "root_lowering_relative_to_ground_aligned_source_m": 0.015,
+    "sole_xy_max_error_m": 1.87448943336945e-10,
+    "source_joint_speed_max_rad_s": 2.7598117478191853,
+    "support_mask": "source relative minimum Z < 18mm and sole XY speed < 0.20m/s",
+    "turn_root_forward_max_m": 0.0,
+    "velocity_measure": "finite difference of collision sole centre; identical source mask"
+  },
+  "amass_side_step_right__B23.npz": {
+    "added_joint_acceleration_max_rad_s2": 35.84354572513357,
+    "com_envelope_ratio_corrected": 0.5959566572499182,
+    "com_envelope_ratio_source": 0.5820538289367475,
+    "corrected_joint_speed_max_rad_s": 2.6353820852961536,
+    "feet": {
+      "l": {
+        "corrected_heel_fraction": 0.0,
+        "corrected_sole_xy_speed_mean_m_s": 0.05386733404929991,
+        "corrected_toe_fraction": 0.027777777777777776,
+        "source_heel_fraction": 0.8611111111111112,
+        "source_sole_xy_speed_mean_m_s": 0.053867334008753556,
+        "source_toe_fraction": 0.027777777777777776,
+        "support_frames": 36
+      },
+      "r": {
+        "corrected_heel_fraction": 0.025,
+        "corrected_sole_xy_speed_mean_m_s": 0.06593316354020096,
+        "corrected_toe_fraction": 0.025,
+        "source_heel_fraction": 0.85,
+        "source_sole_xy_speed_mean_m_s": 0.06593316354858109,
+        "source_toe_fraction": 0.1,
+        "support_frames": 40
+      }
+    },
+    "ik_max_weighted_residual": 2.8874313183491207e-09,
+    "max_added_joint_speed_rad_s": 2.0341295612057024,
+    "max_joint_change_rad": 0.2815026631815822,
+    "method": "sole-centre trajectory constrained 6-DoF leg IK",
+    "minimum_foot_collision_z_m": 0.005206042087012253,
+    "revision": "contact_ik_1",
+    "root_lowering_relative_to_ground_aligned_source_m": 0.015,
+    "sole_xy_max_error_m": 1.8511254403084152e-10,
+    "source_joint_speed_max_rad_s": 2.781502902507782,
+    "support_mask": "source relative minimum Z < 18mm and sole XY speed < 0.20m/s",
+    "turn_root_forward_max_m": 0.0,
+    "velocity_measure": "finite difference of collision sole centre; identical source mask"
+  },
+  "neutral_idle_turn_360_001__A103.npz": {
+    "added_joint_acceleration_max_rad_s2": 105.86663943135721,
+    "com_envelope_ratio_corrected": 0.486858940082491,
+    "com_envelope_ratio_source": 0.4380170214482057,
+    "corrected_joint_speed_max_rad_s": 5.165626521260369,
+    "feet": {
+      "l": {
+        "corrected_heel_fraction": 0.0,
+        "corrected_sole_xy_speed_mean_m_s": 0.019498403399148902,
+        "corrected_toe_fraction": 0.02459016393442623,
+        "source_heel_fraction": 0.9262295081967213,
+        "source_sole_xy_speed_mean_m_s": 0.01949840338719753,
+        "source_toe_fraction": 0.06557377049180328,
+        "support_frames": 122
+      },
+      "r": {
+        "corrected_heel_fraction": 0.0,
+        "corrected_sole_xy_speed_mean_m_s": 0.028919295149948985,
+        "corrected_toe_fraction": 0.0,
+        "source_heel_fraction": 0.00909090909090909,
+        "source_sole_xy_speed_mean_m_s": 0.028919295142467816,
+        "source_toe_fraction": 0.20909090909090908,
+        "support_frames": 110
+      }
+    },
+    "ik_max_weighted_residual": 1.304312890332282e-09,
+    "max_added_joint_speed_rad_s": 3.006251875211019,
+    "max_joint_change_rad": 0.26659884413012913,
+    "method": "sole-centre trajectory constrained 6-DoF leg IK",
+    "minimum_foot_collision_z_m": 0.004999999999999907,
+    "revision": "contact_ik_1",
+    "root_lowering_relative_to_ground_aligned_source_m": 0.015,
+    "sole_xy_max_error_m": 1.7901409693616951e-10,
+    "source_joint_speed_max_rad_s": 4.253488779067993,
+    "support_mask": "source relative minimum Z < 18mm and sole XY speed < 0.20m/s",
+    "turn_root_forward_max_m": 0.012,
+    "velocity_measure": "finite difference of collision sole centre; identical source mask"
+  },
+  "saved_data_checks": {
+    "clips": {
+      "amass_side_step_left__B22.npz": {
+        "body_velocity_error": 2.8737998802597087e-06,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.022727272727272728,
+            "corrected_speed_m_s": 0.05951500665305189,
+            "same_mask_frames": 44,
+            "source_heel_fraction": 0.9545454545454546,
+            "source_speed_m_s": 0.05951499709739758
+          },
+          "r": {
+            "corrected_heel_fraction": 0.022222222222222223,
+            "corrected_speed_m_s": 0.038637309516053785,
+            "same_mask_frames": 45,
+            "source_heel_fraction": 0.9555555555555556,
+            "source_speed_m_s": 0.03863731408293884
+          }
+        },
+        "fk_error_m": 1.0799064398270275e-07,
+        "minimum_collision_z_m": 0.004999950577077077,
+        "sole_xy_error_m": 2.311952630861756e-08
+      },
+      "amass_side_step_left__B22__mirror_right.npz": {
+        "body_velocity_error": 1.8704235316135964e-07,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.022222222222222223,
+            "corrected_speed_m_s": 0.03863730809339564,
+            "same_mask_frames": 45,
+            "source_heel_fraction": 0.9555555555555556,
+            "source_speed_m_s": 0.03863731408293884
+          },
+          "r": {
+            "corrected_heel_fraction": 0.022727272727272728,
+            "corrected_speed_m_s": 0.05951500665305189,
+            "same_mask_frames": 44,
+            "source_heel_fraction": 0.9545454545454546,
+            "source_speed_m_s": 0.05951499709739758
+          }
+        },
+        "fk_error_m": 5.9533068919037646e-08,
+        "minimum_collision_z_m": 0.0049999525031517444,
+        "sole_xy_error_m": 2.3244262547405118e-08
+      },
+      "amass_side_step_right__B23.npz": {
+        "body_velocity_error": 3.0043377154485157e-06,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.05386735703145972,
+            "same_mask_frames": 36,
+            "source_heel_fraction": 0.8611111111111112,
+            "source_speed_m_s": 0.053867334008753556
+          },
+          "r": {
+            "corrected_heel_fraction": 0.025,
+            "corrected_speed_m_s": 0.06593315990951878,
+            "same_mask_frames": 40,
+            "source_heel_fraction": 0.85,
+            "source_speed_m_s": 0.06593316354858109
+          }
+        },
+        "fk_error_m": 1.0012966411565571e-07,
+        "minimum_collision_z_m": 0.00520602126515371,
+        "sole_xy_error_m": 2.4052000073388082e-08
+      },
+      "amass_side_step_right__B23__mirror_left.npz": {
+        "body_velocity_error": 2.939727389295044e-07,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.025,
+            "corrected_speed_m_s": 0.06593317219672154,
+            "same_mask_frames": 40,
+            "source_heel_fraction": 0.85,
+            "source_speed_m_s": 0.06593316354858109
+          },
+          "r": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.053867367098126034,
+            "same_mask_frames": 36,
+            "source_heel_fraction": 0.8611111111111112,
+            "source_speed_m_s": 0.053867334008753556
+          }
+        },
+        "fk_error_m": 5.9484331682568836e-08,
+        "minimum_collision_z_m": 0.005206021380205331,
+        "sole_xy_error_m": 2.322171552381388e-08
+      },
+      "neutral_idle_turn_360_001__A103.npz": {
+        "body_velocity_error": 3.220601025200054e-06,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.019498415924796172,
+            "same_mask_frames": 122,
+            "source_heel_fraction": 0.9262295081967213,
+            "source_speed_m_s": 0.01949840338719753
+          },
+          "r": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.02891929227948187,
+            "same_mask_frames": 110,
+            "source_heel_fraction": 0.00909090909090909,
+            "source_speed_m_s": 0.028919295142467816
+          }
+        },
+        "fk_error_m": 1.0382044224321874e-07,
+        "minimum_collision_z_m": 0.0049999951766533796,
+        "sole_xy_error_m": 2.101549912150322e-08
+      },
+      "neutral_idle_turn_360_001__A103__mirror_left.npz": {
+        "body_velocity_error": 2.347175680483815e-07,
+        "feet": {
+          "l": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.02891929227948187,
+            "same_mask_frames": 110,
+            "source_heel_fraction": 0.00909090909090909,
+            "source_speed_m_s": 0.028919295142467816
+          },
+          "r": {
+            "corrected_heel_fraction": 0.0,
+            "corrected_speed_m_s": 0.019498415924796172,
+            "same_mask_frames": 122,
+            "source_heel_fraction": 0.9262295081967213,
+            "source_speed_m_s": 0.01949840338719753
+          }
+        },
+        "fk_error_m": 5.921101453587596e-08,
+        "minimum_collision_z_m": 0.004999998177536227,
+        "sole_xy_error_m": 2.101549912150322e-08
+      }
+    },
+    "unchanged_npz_count": 18,
+    "validated_geometric_mirror_pairs": 3
+  }
+}

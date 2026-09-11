@@ -1,12 +1,8 @@
-"""Build ELF3 AMP V3.1 with support-aware side-step and turn posture fixes.
+"""Build V3.1 from immutable V3 using sole-trajectory constrained leg IK.
 
-V3.1 is derived from V3 without modifying it.  The two canonical AMASS side
-steps are corrected only while a foot is supporting the robot: the ankle pitch
-is chosen from the ELF3 collision mesh so the heel and toe sit at comparable
-heights.  The in-place turn receives a small, speed-gated hip/ankle posture
-correction that moves the COM toward mid-foot while retaining the original
-turn timing and approximate foot pitch.  Exact sagittal mirrors are rebuilt
-after each canonical clip is corrected.
+Only the two canonical side steps, one canonical turn and their exact mirrors
+change. The helper validates identical source support masks and rebuilds all
+FK/velocity fields. Overwrite retains the previous dataset under artifacts.
 """
 
 from __future__ import annotations
@@ -14,6 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import tempfile
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,8 +22,6 @@ from scripts.augment_elf3_amp_motions import mirror_clip, validate_clip
 from scripts.build_elf3_amp_v3_dataset import (
   _load,
   _metadata,
-  _moving_average,
-  _replay_elf3,
   _save,
 )
 from src.assets.robots.elf3.elf3_constants import (
@@ -52,12 +48,6 @@ SIDE_PAIRS = (
 )
 TURN_SOURCE = "neutral_idle_turn_360_001__A103.npz"
 TURN_MIRROR = "neutral_idle_turn_360_001__A103__mirror_left.npz"
-
-SIDE_MAX_ANKLE_CORRECTION = 0.12
-TURN_HIP_CORRECTION = 0.025
-TURN_MAX_HEEL_ANKLE_CORRECTION = 0.025
-GROUND_CLEARANCE = 0.005
-SMOOTHING_WINDOW = 9
 
 
 @dataclass(frozen=True)
@@ -153,261 +143,72 @@ class Elf3Geometry:
     )
 
 
-def _smoothstep(values: np.ndarray, low: float, high: float) -> np.ndarray:
-  scaled = np.clip((values - low) / (high - low), 0.0, 1.0)
-  return scaled * scaled * (3.0 - 2.0 * scaled)
+def _correct_clip(path: Path, geometry: Elf3Geometry, *, turning: bool) -> dict:
+  from scripts.elf3_contact_ik import correct
 
-
-def _side_contact_metrics(
-  arrays: dict[str, np.ndarray], geometry: Elf3Geometry
-) -> dict[str, float | int]:
-  body_names = tuple(str(name) for name in arrays["body_names"].tolist())
-  contacts: list[float] = []
-  for frame_index in range(len(arrays["joint_pos"])):
-    geometry.set_frame(arrays, frame_index)
-    foot_states = [geometry.foot_state(side) for side in ("l", "r")]
-    lowest = min(state[0] for state in foot_states)
-    for side_index, side in enumerate(("l", "r")):
-      ankle_index = body_names.index(f"{side}_ankle_x_link")
-      horizontal_speed = float(
-        np.linalg.norm(
-          arrays["body_lin_vel_w"][frame_index, ankle_index, :2]
-        )
-      )
-      if foot_states[side_index][0] - lowest <= 0.012 and horizontal_speed < 0.35:
-        contacts.append(foot_states[side_index][1])
-  contact_array = np.asarray(contacts)
-  return {
-    "support_samples": int(len(contact_array)),
-    "mean_contact_location_heel_0_toe_1": float(contact_array.mean()),
-    "heel_quarter_fraction": float(np.mean(contact_array < 0.25)),
-    "toe_quarter_fraction": float(np.mean(contact_array > 0.75)),
-  }
-
-
-def _correct_side_clip(path: Path, geometry: Elf3Geometry) -> None:
+  validate_clip(path)
   arrays = _load(path)
-  before = _side_contact_metrics(arrays, geometry)
-  body_names = tuple(str(name) for name in arrays["body_names"].tolist())
-  frame_count = len(arrays["joint_pos"])
-  foot_heights = np.empty((frame_count, 2), dtype=np.float64)
-  foot_speeds = np.empty((frame_count, 2), dtype=np.float64)
-  raw_corrections = np.zeros((frame_count, 2), dtype=np.float64)
-  candidates = np.linspace(0.0, SIDE_MAX_ANKLE_CORRECTION, 49)
-
-  for frame_index in range(frame_count):
-    geometry.set_frame(arrays, frame_index)
-    for side_index, side in enumerate(("l", "r")):
-      foot_heights[frame_index, side_index] = geometry.foot_state(side)[0]
-      ankle_index = body_names.index(f"{side}_ankle_x_link")
-      foot_speeds[frame_index, side_index] = np.linalg.norm(
-        arrays["body_lin_vel_w"][frame_index, ankle_index, :2]
-      )
-      best_error = float("inf")
-      best_correction = 0.0
-      for candidate in candidates:
-        geometry.set_frame(
-          arrays, frame_index, ankle_delta=(side, float(candidate))
-        )
-        error = abs(geometry.foot_state(side)[2])
-        if error < best_error:
-          best_error = error
-          best_correction = float(candidate)
-      raw_corrections[frame_index, side_index] = best_correction
-
-  relative_height = foot_heights - foot_heights.min(axis=1, keepdims=True)
-  height_weight = np.clip((0.020 - relative_height) / 0.015, 0.0, 1.0)
-  speed_weight = np.clip((0.55 - foot_speeds) / 0.40, 0.0, 1.0)
-  support_weight = height_weight * speed_weight
-
-  applied_corrections: dict[str, np.ndarray] = {}
-  for side_index, side in enumerate(("l", "r")):
-    correction = _moving_average(
-      raw_corrections[:, side_index] * support_weight[:, side_index],
-      SMOOTHING_WINDOW,
-    )
-    joint_index = ELF3_JOINT_NAMES.index(f"{side}_ankle_y_joint")
-    arrays["joint_pos"][:, joint_index] += correction.astype(np.float32)
-    applied_corrections[side] = correction
-
-  alignment = _replay_elf3(
-    arrays,
-    ground_clearance=GROUND_CLEARANCE,
-    smoothing_window=SMOOTHING_WINDOW,
-  )
-  after = _side_contact_metrics(arrays, geometry)
+  report = correct(arrays, geometry, turning=turning)
   metadata = _metadata(arrays)
-  metadata["v3_1_side_support_fix"] = {
-    "method": "support-weighted collision-mesh heel/toe leveling",
-    "max_candidate_ankle_y_rad": SIDE_MAX_ANKLE_CORRECTION,
-    "smoothing_window_frames": SMOOTHING_WINDOW,
-    "applied_l_ankle_y_rad": {
-      "min": float(applied_corrections["l"].min()),
-      "mean": float(applied_corrections["l"].mean()),
-      "max": float(applied_corrections["l"].max()),
-    },
-    "applied_r_ankle_y_rad": {
-      "min": float(applied_corrections["r"].min()),
-      "mean": float(applied_corrections["r"].mean()),
-      "max": float(applied_corrections["r"].max()),
-    },
-    "contact_before": before,
-    "contact_after": after,
-    "ground_alignment": alignment,
-  }
+  metadata["v3_1_contact_ik"] = report
   arrays["metadata"] = np.asarray(json.dumps(metadata, sort_keys=True))
   _save(path, arrays)
+  return report
 
 
-def _turn_com_metrics(
-  arrays: dict[str, np.ndarray], geometry: Elf3Geometry, active: np.ndarray
-) -> dict[str, float]:
-  ratios = np.empty(len(arrays["joint_pos"]), dtype=np.float64)
-  for frame_index in range(len(ratios)):
-    geometry.set_frame(arrays, frame_index)
-    ratios[frame_index] = geometry.com_support_ratio()
-  return {
-    "all_frames_mean_heel_0_toe_1": float(ratios.mean()),
-    "active_frames_mean_heel_0_toe_1": float(ratios[active].mean()),
-    "p05": float(np.quantile(ratios, 0.05)),
-    "p50": float(np.quantile(ratios, 0.50)),
-    "p95": float(np.quantile(ratios, 0.95)),
-  }
+def _mirror_and_rebuild(source: Path, output: Path, geometry: Elf3Geometry) -> None:
+  from scripts.elf3_contact_ik import qpos_from_arrays, rebuild
 
-
-def _turn_contact_metrics(
-  arrays: dict[str, np.ndarray], geometry: Elf3Geometry, active: np.ndarray
-) -> dict[str, dict[str, float | int]]:
-  metrics: dict[str, dict[str, float | int]] = {}
-  for side_index, side in enumerate(("l", "r")):
-    all_contacts: list[float] = []
-    active_contacts: list[float] = []
-    for frame_index in range(len(arrays["joint_pos"])):
-      geometry.set_frame(arrays, frame_index)
-      states = [geometry.foot_state(name) for name in ("l", "r")]
-      lowest = min(state[0] for state in states)
-      state = states[side_index]
-      if state[0] - lowest <= 0.012:
-        all_contacts.append(state[1])
-        if active[frame_index]:
-          active_contacts.append(state[1])
-
-    all_array = np.asarray(all_contacts)
-    active_array = np.asarray(active_contacts)
-    metrics[side] = {
-      "support_samples": int(len(all_array)),
-      "mean_contact_location_heel_0_toe_1": float(all_array.mean()),
-      "heel_quarter_fraction": float(np.mean(all_array < 0.25)),
-      "toe_quarter_fraction": float(np.mean(all_array > 0.75)),
-      "active_support_samples": int(len(active_array)),
-      "active_mean_contact_location_heel_0_toe_1": float(active_array.mean()),
-      "active_heel_quarter_fraction": float(np.mean(active_array < 0.25)),
-      "active_toe_quarter_fraction": float(np.mean(active_array > 0.75)),
-    }
-  return metrics
-
-
-def _correct_turn_clip(path: Path, geometry: Elf3Geometry) -> None:
-  arrays = _load(path)
-  body_names = tuple(str(name) for name in arrays["body_names"].tolist())
-  root_index = body_names.index(ELF3_PHYSICAL_ROOT)
-  yaw_speed = np.abs(arrays["body_ang_vel_w"][:, root_index, 2])
-  weight = _smoothstep(yaw_speed, 0.12, 0.82)
-  weight = _moving_average(weight, SMOOTHING_WINDOW)
-  active = weight > 0.5
-  com_before = _turn_com_metrics(arrays, geometry, active)
-  contact_before = _turn_contact_metrics(arrays, geometry, active)
-
-  hip_correction = (TURN_HIP_CORRECTION * weight).astype(np.float32)
-  for side in ("l", "r"):
-    hip_index = ELF3_JOINT_NAMES.index(f"{side}_hip_y_joint")
-    arrays["joint_pos"][:, hip_index] += hip_correction
-
-  # The source turn intentionally pivots one foot near the toe, but the other
-  # foot spends most of the active turn on its heel.  Preserve the toe pivot and
-  # correct only a low, supporting foot whose contact is behind 40% of the sole.
-  frame_count = len(arrays["joint_pos"])
-  foot_heights = np.empty((frame_count, 2), dtype=np.float64)
-  contact_locations = np.empty((frame_count, 2), dtype=np.float64)
-  for frame_index in range(frame_count):
-    geometry.set_frame(arrays, frame_index)
-    for side_index, side in enumerate(("l", "r")):
-      state = geometry.foot_state(side)
-      foot_heights[frame_index, side_index] = state[0]
-      contact_locations[frame_index, side_index] = state[1]
-
-  relative_height = foot_heights - foot_heights.min(axis=1, keepdims=True)
-  support_weight = np.clip((0.020 - relative_height) / 0.015, 0.0, 1.0)
-  heel_weight = np.clip((0.40 - contact_locations) / 0.40, 0.0, 1.0)
-  applied_ankle_corrections: dict[str, np.ndarray] = {}
-  for side_index, side in enumerate(("l", "r")):
-    ankle_correction = _moving_average(
-      TURN_MAX_HEEL_ANKLE_CORRECTION
-      * support_weight[:, side_index]
-      * weight
-      * np.sqrt(heel_weight[:, side_index]),
-      SMOOTHING_WINDOW,
-    )
-    ankle_index = ELF3_JOINT_NAMES.index(f"{side}_ankle_y_joint")
-    arrays["joint_pos"][:, ankle_index] += ankle_correction.astype(np.float32)
-    applied_ankle_corrections[side] = ankle_correction
-
-  alignment = _replay_elf3(
-    arrays,
-    ground_clearance=GROUND_CLEARANCE,
-    smoothing_window=SMOOTHING_WINDOW,
-  )
-  com_after = _turn_com_metrics(arrays, geometry, active)
-  contact_after = _turn_contact_metrics(arrays, geometry, active)
+  mirror_clip(source, output)
+  arrays = _load(output)
+  rebuild(arrays, geometry, qpos_from_arrays(arrays), float(arrays['fps'][0]))
   metadata = _metadata(arrays)
-  metadata["v3_1_turn_posture_fix"] = {
-    "method": "yaw-speed-gated hip correction plus support-aware heel reduction",
-    "peak_hip_correction_rad": TURN_HIP_CORRECTION,
-    "max_heel_ankle_correction_rad": TURN_MAX_HEEL_ANKLE_CORRECTION,
-    "applied_l_ankle_y_rad": {
-      "min": float(applied_ankle_corrections["l"].min()),
-      "mean": float(applied_ankle_corrections["l"].mean()),
-      "max": float(applied_ankle_corrections["l"].max()),
-    },
-    "applied_r_ankle_y_rad": {
-      "min": float(applied_ankle_corrections["r"].min()),
-      "mean": float(applied_ankle_corrections["r"].mean()),
-      "max": float(applied_ankle_corrections["r"].max()),
-    },
-    "active_frame_count": int(active.sum()),
-    "weight_first": float(weight[0]),
-    "weight_last": float(weight[-1]),
-    "com_before": com_before,
-    "com_after": com_after,
-    "contact_before": contact_before,
-    "contact_after": contact_after,
-    "ground_alignment": alignment,
+  metadata['v3_1_contact_ik'] = {
+    'revision': 'contact_ik_1', 'canonical_clip': source.name,
+    'method': 'sagittal joint/sole-trajectory mirror, canonical FK/velocities rebuilt',
+    'note': 'left/right link COM offsets are not exactly symmetric in ELF3',
   }
-  arrays["metadata"] = np.asarray(json.dumps(metadata, sort_keys=True))
-  _save(path, arrays)
+  arrays['metadata'] = np.asarray(json.dumps(metadata, sort_keys=True))
+  _save(output, arrays)
 
 
 def _write_readme(output: Path) -> None:
-  text = """# ELF3 AMP V3.1 motion set
+  text = """# ELF3 AMP V3.1 — contact IK revision
 
-This directory is generated from `amp_v3` by
-`scripts/build_elf3_amp_v3_1_dataset.py`. The V3 directory is not modified.
+Generated from immutable `amp_v3` by
+`scripts/build_elf3_amp_v3_1_dataset.py`, using `scripts/elf3_contact_ik.py`.
 
-- The two canonical AMASS side-step clips use support-aware ankle-pitch
-  correction derived from the ELF3 collision mesh. The correction is faded out
-  for fast or lifted feet, so swing and crossover timing stay unchanged.
-- Their left/right counterparts are regenerated as exact sagittal mirrors.
-- The canonical in-place turn uses a maximum 0.025 rad hip-pitch adjustment to
-  shift active-turn COM toward mid-foot. A separate maximum 0.025 rad ankle
-  adjustment is applied only to a low supporting foot that is loading its heel;
-  the original toe-pivot foot and turn speed are retained.
-- The mirrored turn is regenerated from the corrected canonical turn.
-- Joint/body velocities and all body FK fields are recomputed. Corrected clips
-  are aligned to at least 5 mm collision clearance.
-- Every other V3 motion is copied byte-for-byte.
+- Replaces four side-step clips and two in-place-turn clips. Other 18 NPZs
+  remain byte-identical to V3.
+- Six-joint leg IK preserves the original collision sole-centre XY trajectory
+  for **every frame**, while reducing heel/toe pitch in low, slow support.
+  Original yaw and lateral roll are retained; large toe-off tilts are preserved.
+- Ground clearance is reconstructed per foot. The torso is lowered 15 mm
+  relative to the ground-aligned source to avoid straight-knee singularities.
+- During the active turn, torso translation advances by at most 12 mm; both
+  foot XY trajectories remain constrained. There is no blanket hip-angle edit.
+- Joint and sole trajectories are mirrored from corrected canonical clips.
+  Both sides' FK and velocities are rebuilt with the actual ELF3 inertial
+  offsets, which are not perfectly symmetric. BODY linear velocity at link COM
+  therefore need not be an exact signed copy on the other side.
+- All FK, joint and body velocities are recomputed. Ankle body velocity and
+  collision sole-centre velocity are different measurements.
+- The audit uses **the same source-frame mask** before and after correction:
+  relative foot height < 18 mm and sole XY speed < 0.20 m/s.
+  The old comparisons using a separately selected mask per dataset are invalid.
+- See `validation.json` and each corrected clip's `v3_1_contact_ik` metadata
+  for trajectory errors, speed, heel fractions, COM and correction magnitudes.
 
-The detailed before/after contact and COM measurements are stored in each
-corrected NPZ's JSON metadata.
+These are kinematic references. The inferred support mask and lowest mesh
+vertices do not measure load, centre of pressure, torque feasibility or dynamic
+stability. Original small sole translations are retained, not removed.
+The COM ratio uses the two-foot geometric envelope, not a force-based support
+polygon. Closed-loop policy/real-robot improvement requires separate testing.
+
+The dataset revision does not change training parameters. The accompanying
+AMP sampler fix selects clips uniformly per sample, then frames uniformly
+within each clip. All 24 clips are eligible, including the four straight
+walking clips omitted by the previous 20-batch, restart-at-zero sampler.
 """
   (output / "README.md").write_text(text, encoding="utf-8")
 
@@ -416,33 +217,54 @@ def build(output: Path, *, overwrite: bool = False) -> None:
   output = output.resolve()
   if not V3_DIR.is_dir():
     raise FileNotFoundError(V3_DIR)
-  if output.exists() and not overwrite:
-    raise FileExistsError(f"Refusing to overwrite existing V3.1 dataset: {output}")
-  staging = output.with_name(output.name + ".building")
-  if staging.exists():
-    raise FileExistsError(f"Remove stale staging directory first: {staging}")
+  # Disallow replacing an ancestor, the source, or arbitrary existing folders.
+  if output == V3_DIR.resolve() or output in V3_DIR.resolve().parents:
+    raise ValueError(f"Unsafe dataset destination: {output}")
+  if output.exists():
+    if not overwrite:
+      raise FileExistsError(f"Dataset already exists: {output}")
+    readme = output / "README.md"
+    if not readme.is_file() or "ELF3 AMP V3.1" not in readme.read_text():
+      raise ValueError(f"Refusing to replace an unrecognized dataset: {output}")
 
-  shutil.copytree(V3_DIR, staging)
+  output.parent.mkdir(parents=True, exist_ok=True)
+  staging = Path(tempfile.mkdtemp(prefix=output.name + ".building-", dir=output.parent))
+  shutil.copytree(V3_DIR, staging, dirs_exist_ok=True)
   geometry = Elf3Geometry()
   walk_dir = staging / WALK_DIR
+  reports = {}
   for source_name, mirror_name in SIDE_PAIRS:
-    _correct_side_clip(walk_dir / source_name, geometry)
-    (walk_dir / mirror_name).unlink()
-    mirror_clip(walk_dir / source_name, walk_dir / mirror_name)
-
-  _correct_turn_clip(walk_dir / TURN_SOURCE, geometry)
-  (walk_dir / TURN_MIRROR).unlink()
-  mirror_clip(walk_dir / TURN_SOURCE, walk_dir / TURN_MIRROR)
-
+    reports[source_name] = _correct_clip(walk_dir / source_name, geometry, turning=False)
+    _mirror_and_rebuild(walk_dir / source_name, walk_dir / mirror_name, geometry)
+  reports[TURN_SOURCE] = _correct_clip(walk_dir / TURN_SOURCE, geometry, turning=True)
+  _mirror_and_rebuild(walk_dir / TURN_SOURCE, walk_dir / TURN_MIRROR, geometry)
   _write_readme(staging)
   for motion in sorted(staging.rglob("*.npz")):
     validate_clip(motion)
+
+  # Test saved float32 data independently, including mirrors, before publication.
+  from scripts.validate_elf3_contact_ik import validate_dataset
+  reports["saved_data_checks"] = validate_dataset(V3_DIR, staging)
+  (staging / "validation.json").write_text(
+    json.dumps(reports, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+  )
+  backup = None
   if output.exists():
-    shutil.rmtree(output)
-  staging.rename(output)
+    backup_root = PROJECT_ROOT / "artifacts" / "v3_1_backups"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = backup_root / (datetime.now().strftime("%Y%m%d_%H%M%S_") + staging.name)
+    output.rename(backup)
+  try:
+    staging.rename(output)
+  except OSError:
+    if backup is not None:
+      backup.rename(output)
+    raise
   motions = list(output.rglob("*.npz"))
   frames = sum(int(_load(path)["joint_pos"].shape[0]) for path in motions)
   print(f"Built {output}: {len(motions)} clips / {frames} frames")
+  if backup is not None:
+    print(f"Previous V3.1 retained at {backup}")
 
 
 def main() -> None:

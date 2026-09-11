@@ -1,5 +1,4 @@
 from __future__ import annotations
-import math
 import numpy as np
 import os
 import torch
@@ -162,6 +161,7 @@ class AMPLoader:
         self._body_ori_b = self._body_ori_b_list[0]
         self._body_lin_vel_b = self._body_lin_vel_b_list[0]
         self._body_ang_vel_b = self._body_ang_vel_b_list[0]
+        self._build_sampling_cache()
 
     @property
     def observation_dim(self) -> int:
@@ -169,51 +169,39 @@ class AMPLoader:
         obs_dim = (3 + 6 + 3 + 3) * num_bodies  # pos, mat[:,:2], lin_vel, ang_vel
         return obs_dim
 
-    def feed_forward_generator(self, num_mini_batch, mini_batch_size):
-        num_motions = len(self._body_pos_b_list)
-        
-        for batch_idx in range(num_mini_batch):
-            # 按顺序循环选择motion文件
-            motion_idx = batch_idx % num_motions
-            
-            # 获取当前motion的数据
-            current_body_pos_b = self._body_pos_b_list[motion_idx]
-            current_body_ori_b = self._body_ori_b_list[motion_idx]
-            current_body_lin_vel_b = self._body_lin_vel_b_list[motion_idx]
-            current_body_ang_vel_b = self._body_ang_vel_b_list[motion_idx]
-            current_time_step_total = current_body_pos_b.shape[0]
-            
-            # 从当前motion中随机采样
-            idxs = torch.randint(0, current_time_step_total, (mini_batch_size,), device=current_body_pos_b.device)
-            idxs = torch.clamp(idxs, max=current_time_step_total - 1)
-            
-            batch_body_pos_b = current_body_pos_b[idxs]  # (mini_batch_size, num_bodies, 3)
-            batch_body_ori_b = current_body_ori_b[idxs]  # (mini_batch_size, num_bodies, 6)
-            batch_body_lin_vel_b = current_body_lin_vel_b[idxs]  # (mini_batch_size, num_bodies, 3)
-            batch_body_ang_vel_b = current_body_ang_vel_b[idxs]  # (mini_batch_size, num_bodies, 3)
-            s = torch.cat(
-                [
-                    batch_body_pos_b.reshape(mini_batch_size, -1),
-                    batch_body_ori_b.reshape(mini_batch_size, -1),
-                    batch_body_lin_vel_b.reshape(mini_batch_size, -1),
-                    batch_body_ang_vel_b.reshape(mini_batch_size, -1),
-                ],
-                dim=-1,
-            )  # (mini_batch_size, obs_dim)
+    def _build_sampling_cache(self):
+        """Pack observations for vectorized, equal-per-clip expert sampling."""
+        lengths = [motion.shape[0] for motion in self._body_pos_b_list]
+        if not lengths or min(lengths) < 1:
+            raise ValueError("AMP motions must contain at least one frame each")
+        self._sampling_observations = torch.cat([
+            torch.cat([field.flatten(1) for field in fields], dim=-1)
+            for fields in zip(
+                self._body_pos_b_list, self._body_ori_b_list,
+                self._body_lin_vel_b_list, self._body_ang_vel_b_list,
+            )
+        ], dim=0)
+        device = self._sampling_observations.device
+        self._sampling_lengths = torch.tensor(lengths, dtype=torch.long, device=device)
+        self._sampling_offsets = self._sampling_lengths.cumsum(0) - self._sampling_lengths
 
-            next_idxs = (idxs + 1)
-            next_idxs = torch.clamp(next_idxs, max=current_time_step_total - 1)
-            batch_next_body_pos_b = current_body_pos_b[next_idxs]  # (mini_batch_size, num_bodies, 3)
-            batch_next_body_ori_b = current_body_ori_b[next_idxs]  # (mini_batch_size, num_bodies, 6)
-            batch_next_body_lin_vel_b = current_body_lin_vel_b[next_idxs]  # (mini_batch_size, num_bodies, 3)
-            batch_next_body_ang_vel_b = current_body_ang_vel_b[next_idxs]  # (mini_batch_size, num_bodies, 3)
-            s_next = torch.cat(
-                [
-                    batch_next_body_pos_b.reshape(mini_batch_size, -1),
-                    batch_next_body_ori_b.reshape(mini_batch_size, -1),
-                    batch_next_body_lin_vel_b.reshape(mini_batch_size, -1),
-                    batch_next_body_ang_vel_b.reshape(mini_batch_size, -1),
-                ],
-                dim=-1,
-            )  # (mini_batch_size, obs_dim)
-            yield s, s_next
+    def feed_forward_generator(self, num_mini_batch, mini_batch_size):
+        """Sample a clip uniformly per row, then a frame uniformly in that clip.
+
+        All clips remain eligible even when there are fewer minibatches than
+        clips. Clip duration does not change its sampling weight. Consecutive
+        frames always belong to the same clip; retain the terminal-frame clamp.
+        """
+        device = self._sampling_observations.device
+        num_motions = self._sampling_lengths.numel()
+        for _ in range(num_mini_batch):
+            motion_idxs = torch.randint(num_motions, (mini_batch_size,), device=device)
+            lengths = self._sampling_lengths[motion_idxs]
+            offsets = self._sampling_offsets[motion_idxs]
+            frame_idxs = (torch.rand(mini_batch_size, device=device) * lengths).long()
+            frame_idxs = torch.minimum(frame_idxs, lengths - 1)
+            next_frame_idxs = torch.minimum(frame_idxs + 1, lengths - 1)
+            yield (
+                self._sampling_observations[offsets + frame_idxs],
+                self._sampling_observations[offsets + next_frame_idxs],
+            )

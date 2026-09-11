@@ -106,7 +106,16 @@ python scripts/list_envs.py --keyword ELF3
 
 仓库已经包含训练所需的 ELF3 MJCF/mesh 和 17 段走跑 AMP 数据。`Recovery` 中包含一段从 G1 语义映射得到的临时起身数据；正式部署前仍建议替换成 ELF3 原生起身动作。
 
-`src/assets/motions/elf3/amp_v3_1` 是独立的 V3.1 数据集：侧移动作修正了支撑期脚跟接触，原地转向修正了偏后质心和承重脚脚跟接触。原始 `amp_v3` 不会被修改。
+`src/assets/motions/elf3/amp_v3_1` 是独立的 V3.1 数据集，共 24 段。最新版本使用整腿接触 IK 修正四段侧移、两段原地转向，约束足底中心每帧 XY 轨迹，重算 FK 和速度；其他 18 段与 `amp_v3` 字节一致。通过的是运动学验证，不代表已验证承重分布或真机稳定性。原始 `amp_v3` 不会被修改。
+
+AMP 专家采样已修复：每条样本等概率选择动作文件，再在文件内均匀选帧，全部 24 段各占期望 `1/24`，不按时长加权。旧代码每次更新从第 0 段开始，仅取 20 批，导致最后两段前进走路、两段后退走路一直未被用于专家监督。现在每批混合动作，前后帧仍来自同一段；reset 的采样方式不变。
+
+验证命令：
+
+```bash
+python -m unittest discover -s tests -v
+python -m scripts.validate_elf3_contact_ik
+```
 
 ## 5. 数据播放检查
 
@@ -164,6 +173,14 @@ python scripts/train.py BXI-ELF3-AMP-Flat \
 `elf3_amp_locomotion_v3_1`，不会自动查找或加载旧 checkpoint。若已经完成
 V3 训练、需要换用修正数据续训，必须额外显式传入上面的 `--agent.resume`、
 `--agent.load-run` 和 `--agent.load-checkpoint` 参数。
+
+新训练默认学习率仍为 `1e-3`、自适应调度。`--resume-optimizer True`
+会同时恢复优化器及调度器使用的学习率，避免首轮回到新训练默认值；
+课程时钟从检查点恢复，不重新从阶段零计算。
+
+回退到较早检查点时，建议复制该检查点到新的日志目录，再从副本续训，
+保留不可变的原检查点。当前 runner 首次保存可能覆盖同轮次的文件。
+SwanLab 应创建新实验，避免旧实验已有更大 step 导致回退后的指标被拒收。
 
 若还要续接已有 SwanLab run，同时添加：
 
