@@ -160,8 +160,10 @@ python scripts/train.py BXI-ELF3-AMP-Flat \
   --agent.load-checkpoint 'model_.*.pt'
 ```
 
-若 checkpoint 已经完成 V3 训练、需要换用修正数据续训，将任务名改为
-`BXI-ELF3-AMP-Flat-V3-1`，其余 checkpoint 与 SwanLab 参数保持不变。
+`BXI-ELF3-AMP-Flat-V3-1` 默认是独立的重新训练任务，日志写入
+`elf3_amp_locomotion_v3_1`，不会自动查找或加载旧 checkpoint。若已经完成
+V3 训练、需要换用修正数据续训，必须额外显式传入上面的 `--agent.resume`、
+`--agent.load-run` 和 `--agent.load-checkpoint` 参数。
 
 若还要续接已有 SwanLab run，同时添加：
 

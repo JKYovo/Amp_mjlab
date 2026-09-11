@@ -283,7 +283,7 @@ def elf3_amp_flat_v3_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def elf3_amp_flat_v3_1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Continue V3 with support-corrected side-step and in-place-turn motions."""
+  """Create the V3 task with corrected side-step and in-place-turn motions."""
   cfg = elf3_amp_flat_v3_env_cfg(play=play)
   motion_base = os.path.abspath(
     os.path.join(

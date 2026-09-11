@@ -83,7 +83,7 @@ Main tasks:
 - `BXI-ELF3-AMP-Rough`
 - `BXI-ELF3-AMP-Flat`
 - `BXI-ELF3-AMP-Flat-Loco` (stage-one walk/run-only pretraining)
-- `BXI-ELF3-AMP-Flat-V3-1` (V3 continuation with corrected side/turn support)
+- `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
 
 ## Training
 

@@ -115,8 +115,9 @@ def elf3_amp_v3_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
 
 
 def elf3_amp_v3_1_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
-  """Continue V3 training with the support-corrected V3.1 motions."""
-  cfg = elf3_amp_v3_ppo_runner_cfg()
-  cfg.run_name = "v3_1_from_v3"
+  """Create a fresh-run configuration backed by corrected V3.1 motions."""
+  cfg = elf3_amp_ppo_runner_cfg()
+  cfg.experiment_name = "elf3_amp_locomotion_v3_1"
+  cfg.run_name = "v3_1_fresh"
   cfg.amp_motion_files = _MOTION_DATA_V3_1_DIR
   return cfg
