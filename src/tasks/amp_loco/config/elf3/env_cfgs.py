@@ -8,6 +8,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg, GridPatternCfg, ObjRef
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
@@ -24,7 +25,10 @@ from src.assets.robots.elf3.elf3_constants import (
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
 from src.tasks.amp_loco.mdp.command import TurningVelocityCommandCfg
 from src.tasks.amp_loco.mdp.rough_height import (
-  root_height_below_terrain, track_root_height_terrain,
+  assign_interior_terrain_origins,
+  root_height_below_terrain,
+  root_outside_terrain_interior,
+  track_root_height_terrain,
 )
 from src.tasks.amp_loco.mdp.tienkung_terrain import tienkung_gravel_cfg
 
@@ -295,6 +299,7 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.scene.terrain = deepcopy(rough.scene.terrain)
   assert cfg.scene.terrain is not None
   cfg.scene.terrain.terrain_generator = tienkung_gravel_cfg(play=play)
+  terrain_generator = cfg.scene.terrain.terrain_generator
   cfg.scene.terrain.max_init_terrain_level = 5
   cfg.sim = deepcopy(rough.sim)
   # Warp EPA scratch memory scales with nconmax * ccd_iterations * num_envs.
@@ -309,6 +314,28 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.sim.njmax = 768
   cfg.sim.contact_sensor_maxmatch = 1024
   cfg.curriculum.pop('terrain_levels', None)
+  # The generated terrain is surrounded by four flat boxes. MuJoCo-Warp can
+  # become unstable when an ELF3 foot mesh crosses that outer geom seam and
+  # penetrates a border box. Spawn only on interior gravel tiles, leaving two
+  # tile rings in training (one in the smaller play grid) as a guard band.
+  tile_margin = 1 if play else 2
+  cfg.events['interior_terrain_origins'] = EventTermCfg(
+    func=assign_interior_terrain_origins,
+    mode='startup',
+    params={'margin_rows': tile_margin, 'margin_cols': tile_margin},
+  )
+  # Play previously randomized origins after reset_from_motion had already
+  # written the robot pose. Keep origins fixed after the safe startup sample.
+  cfg.events.pop('randomize_terrain', None)
+  cfg.terminations['terrain_outer_boundary'] = TerminationTermCfg(
+    func=root_outside_terrain_interior,
+    time_out=True,
+    params={
+      'half_extent_x': terrain_generator.num_rows * terrain_generator.size[0] / 2,
+      'half_extent_y': terrain_generator.num_cols * terrain_generator.size[1] / 2,
+      'safety_margin': 1.0,
+    },
+  )
   # Use fixed V4 ranges rather than replaying the old curriculum clock. Keep
   # forward/backward inside the walking envelope, while preserving the V3.1
   # lateral and turning command scales learned by the resumed policy.

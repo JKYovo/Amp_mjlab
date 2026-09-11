@@ -53,6 +53,13 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
         obs, _ = env.reset()
         capacity_check()
         assert obs['actor'].shape == (num_envs, 384), obs['actor'].shape
+        env_origins = env.scene.env_origins
+        # Training keeps two generated gravel-tile rings between spawn origins
+        # and the outer border boxes: x origins +/-20 m, y origins +/-60 m.
+        assert torch.all(env_origins[:, 0].abs() <= 20.00001), env_origins[:, 0]
+        assert torch.all(env_origins[:, 1].abs() <= 60.00001), env_origins[:, 1]
+        boundary = env.termination_manager.get_term_cfg('terrain_outer_boundary')
+        assert boundary.time_out, 'terrain boundary must not be a failure termination'
         model = env.sim.mj_model
         ids = [model.body('robot/' + name).id for name in (ELF3_POLICY_ROOT, ELF3_PHYSICAL_ROOT)]
         actual = env.sim.model.body_ipos[:, ids].detach().cpu()
@@ -94,6 +101,8 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
                   'com_offset_max_xyz_m': delta.amax(dim=(0, 1)).tolist(),
                   'sampled_command_min': commands.amin(dim=0).tolist(),
                   'sampled_command_max': commands.amax(dim=0).tolist(),
+                  'env_origin_min_xyz_m': env_origins.amin(dim=0).tolist(),
+                  'env_origin_max_xyz_m': env_origins.amax(dim=0).tolist(),
                   'finite_observations_rewards': True,
                   'nconmax': cfg.sim.nconmax, 'njmax': cfg.sim.njmax,
                   'ccd_iterations': cfg.sim.mujoco.ccd_iterations,

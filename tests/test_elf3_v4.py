@@ -14,7 +14,12 @@ import torch
 import src.tasks  # noqa: F401
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
 from scripts.build_elf3_amp_v4_dataset import SOURCE, OUTPUT, REMOVED, sha256
-from src.tasks.amp_loco.mdp.rough_height import root_clearance, root_height_below_terrain
+from src.tasks.amp_loco.mdp.rough_height import (
+    assign_interior_terrain_origins,
+    root_clearance,
+    root_height_below_terrain,
+    root_outside_terrain_interior,
+)
 from src.tasks.amp_loco.mdp.tienkung_terrain import TienKungGravelTerrainCfg
 from src.tasks.amp_loco.ampmotion_loader import MotionLoader
 from rsl_rl.utils.motion_loader import AMPLoader
@@ -101,6 +106,17 @@ class V4Test(unittest.TestCase):
             self.assertEqual(cfg.events['init_motion_loader'].params['delay_reset_env_ratio'], .4)
             self.assertEqual(Path(cfg.events['init_motion_loader'].params['motion_dir']), OUTPUT/'WalkandRun')
             self.assertEqual(cfg.events['reset_from_motion'].params['motion_dir'], str(OUTPUT/'WalkandRun'))
+            interior = cfg.events['interior_terrain_origins']
+            margin = 1 if play else 2
+            self.assertEqual(interior.mode, 'startup')
+            self.assertEqual(interior.params, {'margin_rows': margin, 'margin_cols': margin})
+            self.assertNotIn('randomize_terrain', cfg.events)
+            boundary = cfg.terminations['terrain_outer_boundary']
+            self.assertTrue(boundary.time_out)
+            half_extent = 20.0 if play else 40.0
+            self.assertEqual(boundary.params['half_extent_x'], half_extent)
+            self.assertEqual(boundary.params['half_extent_y'], half_extent if play else 80.0)
+            self.assertEqual(boundary.params['safety_margin'], 1.0)
             for name, reward in cfg.rewards.items():
                 self.assertEqual(reward.weight, v3.rewards[name].weight)
                 self.assertEqual(reward.params, v3.rewards[name].params)
@@ -162,6 +178,38 @@ class V4Test(unittest.TestCase):
         env = SimpleNamespace(scene=scene)
         torch.testing.assert_close(root_clearance(env), torch.tensor([1., .5]))
         self.assertEqual(root_height_below_terrain(env, .62).tolist(), [False, True])
+
+    def test_interior_origins_and_outer_boundary_timeout(self):
+        class Scene(dict):
+            terrain = None
+
+        origins = torch.zeros(10, 20, 3)
+        origins[..., 0] = torch.arange(10).view(-1, 1) * 8 - 36
+        origins[..., 1] = torch.arange(20).view(1, -1) * 8 - 76
+        scene = Scene(robot=SimpleNamespace(data=SimpleNamespace(
+            root_link_pos_w=torch.tensor([
+                [0., 0., 1.], [38.9, 0., 1.], [39., 0., 1.],
+                [0., -79.1, 1.], [float('nan'), 0., 1.],
+            ])
+        )))
+        scene.terrain = SimpleNamespace(
+            terrain_origins=origins,
+            terrain_levels=torch.zeros(4096, dtype=torch.long),
+            terrain_types=torch.zeros(4096, dtype=torch.long),
+            env_origins=torch.zeros(4096, 3),
+        )
+        env = SimpleNamespace(scene=scene, num_envs=4096, device='cpu')
+        torch.manual_seed(42)
+        assign_interior_terrain_origins(env, margin_rows=2, margin_cols=2)
+        self.assertTrue(torch.all((scene.terrain.terrain_levels >= 2)
+                                  & (scene.terrain.terrain_levels < 8)))
+        self.assertTrue(torch.all((scene.terrain.terrain_types >= 2)
+                                  & (scene.terrain.terrain_types < 18)))
+        expected = origins[scene.terrain.terrain_levels, scene.terrain.terrain_types]
+        torch.testing.assert_close(scene.terrain.env_origins, expected)
+        result = root_outside_terrain_interior(
+            env, half_extent_x=40., half_extent_y=80., safety_margin=1.)
+        self.assertEqual(result.tolist(), [False, False, True, True, True])
 
 
 if __name__ == '__main__':
