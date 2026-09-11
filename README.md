@@ -83,6 +83,7 @@ Main tasks:
 - `BXI-ELF3-AMP-Rough`
 - `BXI-ELF3-AMP-Flat`
 - `BXI-ELF3-AMP-Flat-Loco` (stage-one walk/run-only pretraining)
+- `BXI-ELF3-AMP-Flat-V3-1` (V3 continuation with corrected side/turn support)
 
 ## Training
 
@@ -96,6 +97,7 @@ ELF3:
 source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Flat-Loco --env.scene.num-envs=4096
 python scripts/train.py BXI-ELF3-AMP-Flat --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
 python scripts/train.py BXI-ELF3-AMP-Rough --env.scene.num-envs=4096
 ```
 
@@ -115,6 +117,8 @@ Logs are saved by default to:
 - The final policy is trained jointly on locomotion and recovery. For a new robot, use `BXI-ELF3-AMP-Flat-Loco` to stabilize flat-ground locomotion, then add native recovery data and ramp the delayed-recovery environment ratio from 0.1 to 0.4, and finally fine-tune on rough terrain.
 
 The ELF3-specific reward and root settings are in `src/tasks/amp_loco/config/elf3/env_cfgs.py`.
+The isolated V3.1 motion set is in `src/assets/motions/elf3/amp_v3_1`; rebuild it
+from immutable V3 data with `scripts/build_elf3_amp_v3_1_dataset.py`.
 
 Resume the joint task from the stage-one checkpoint with `--agent.resume True`,
 `--agent.load-run <loco_run_dir>`, and `--agent.load-checkpoint 'model_<iter>.pt'`.

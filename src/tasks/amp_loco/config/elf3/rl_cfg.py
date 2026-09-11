@@ -34,6 +34,9 @@ _MOTION_DATA_V2_DIR = os.path.join(
 _MOTION_DATA_V3_DIR = os.path.join(
   os.path.dirname(_MOTION_DATA_DIR), "amp_v3"
 )
+_MOTION_DATA_V3_1_DIR = os.path.join(
+  os.path.dirname(_MOTION_DATA_DIR), "amp_v3_1"
+)
 
 
 def elf3_amp_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
@@ -108,4 +111,12 @@ def elf3_amp_v3_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg.experiment_name = "elf3_amp_locomotion_v3"
   cfg.run_name = "v3_from_v2"
   cfg.amp_motion_files = _MOTION_DATA_V3_DIR
+  return cfg
+
+
+def elf3_amp_v3_1_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Continue V3 training with the support-corrected V3.1 motions."""
+  cfg = elf3_amp_v3_ppo_runner_cfg()
+  cfg.run_name = "v3_1_from_v3"
+  cfg.amp_motion_files = _MOTION_DATA_V3_1_DIR
   return cfg

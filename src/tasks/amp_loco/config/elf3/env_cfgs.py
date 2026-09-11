@@ -280,3 +280,27 @@ def elf3_amp_flat_v3_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
   cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
   return cfg
+
+
+def elf3_amp_flat_v3_1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Continue V3 with support-corrected side-step and in-place-turn motions."""
+  cfg = elf3_amp_flat_v3_env_cfg(play=play)
+  motion_base = os.path.abspath(
+    os.path.join(
+      os.path.dirname(__file__),
+      "..",
+      "..",
+      "..",
+      "..",
+      "assets",
+      "motions",
+      "elf3",
+      "amp_v3_1",
+    )
+  )
+  motion_dir = os.path.join(motion_base, "WalkandRun")
+  recovery_dir = os.path.join(motion_base, "Recovery")
+  cfg.events["init_motion_loader"].params["motion_dir"] = motion_dir
+  cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
+  cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
+  return cfg

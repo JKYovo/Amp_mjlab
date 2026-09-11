@@ -101,9 +101,12 @@ python scripts/list_envs.py --keyword ELF3
 
 - `BXI-ELF3-AMP-Flat`
 - `BXI-ELF3-AMP-Flat-Loco`
+- `BXI-ELF3-AMP-Flat-V3-1`
 - `BXI-ELF3-AMP-Rough`
 
 仓库已经包含训练所需的 ELF3 MJCF/mesh 和 17 段走跑 AMP 数据。`Recovery` 中包含一段从 G1 语义映射得到的临时起身数据；正式部署前仍建议替换成 ELF3 原生起身动作。
+
+`src/assets/motions/elf3/amp_v3_1` 是独立的 V3.1 数据集：侧移动作修正了支撑期脚跟接触，原地转向修正了偏后质心和承重脚脚跟接触。原始 `amp_v3` 不会被修改。
 
 ## 5. 数据播放检查
 
@@ -111,7 +114,7 @@ python scripts/list_envs.py --keyword ELF3
 
 ```bash
 python scripts/play_elf3_amp_motion.py \
-  --input-path src/assets/motions/elf3/amp/WalkandRun
+  --input-path src/assets/motions/elf3/amp_v3_1/WalkandRun
 ```
 
 无桌面环境时：
@@ -119,7 +122,7 @@ python scripts/play_elf3_amp_motion.py \
 ```bash
 MUJOCO_GL=egl python scripts/play_elf3_amp_motion.py \
   --mode video \
-  --input-path src/assets/motions/elf3/amp/WalkandRun \
+  --input-path src/assets/motions/elf3/amp_v3_1/WalkandRun \
   --output artifacts/elf3_amp_walkandrun.mp4 \
   --max-seconds-per-clip 3
 ```
@@ -156,6 +159,9 @@ python scripts/train.py BXI-ELF3-AMP-Flat \
   --agent.load-run '<run_dir>' \
   --agent.load-checkpoint 'model_.*.pt'
 ```
+
+若 checkpoint 已经完成 V3 训练、需要换用修正数据续训，将任务名改为
+`BXI-ELF3-AMP-Flat-V3-1`，其余 checkpoint 与 SwanLab 参数保持不变。
 
 若还要续接已有 SwanLab run，同时添加：
 
