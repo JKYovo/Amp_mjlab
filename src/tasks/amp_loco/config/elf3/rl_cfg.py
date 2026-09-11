@@ -114,10 +114,30 @@ def elf3_amp_v3_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   return cfg
 
 
+def elf3_amp_v4_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Fresh rough walking run; no implicit checkpoint or fine-tuning LR."""
+  cfg = elf3_amp_ppo_runner_cfg()
+  cfg.experiment_name = 'elf3_amp_locomotion_v4'
+  cfg.run_name = 'v4_rough_walk_fresh'
+  cfg.max_iterations = 200001
+  cfg.resume = False
+  cfg.amp_motion_files = os.path.join(os.path.dirname(_MOTION_DATA_DIR), 'amp_v4')
+  return cfg
+
+
 def elf3_amp_v3_1_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   """Create a fresh-run configuration backed by corrected V3.1 motions."""
   cfg = elf3_amp_ppo_runner_cfg()
   cfg.experiment_name = "elf3_amp_locomotion_v3_1"
   cfg.run_name = "v3_1_fresh"
   cfg.amp_motion_files = _MOTION_DATA_V3_1_DIR
+  return cfg
+
+
+def elf3_amp_v4_loco_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Fresh V4 locomotion-only task; omit recovery from the AMP expert too."""
+  cfg = elf3_amp_v4_ppo_runner_cfg()
+  cfg.experiment_name = 'elf3_amp_locomotion_v4_loco'
+  cfg.run_name = 'v4_rough_walk_no_recovery_fresh'
+  cfg.amp_motion_files = os.path.join(cfg.amp_motion_files, 'WalkandRun')
   return cfg

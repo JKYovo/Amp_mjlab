@@ -1,0 +1,177 @@
+{
+  "source_dataset": "amp_v3_1",
+  "dataset": "amp_v4",
+  "kept_clips": 16,
+  "removed_clips": 8,
+  "kept_frames": 7664,
+  "entries": [
+    {
+      "file": "Recovery/fallAndGetUp1_subject1.npz",
+      "kept": true,
+      "sha256": "ee62d1c82160df98151ac33eeb2d97b1d472cd22e25af30c59188100215c0d5f",
+      "frames": 2575,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/amass_side_step_left__B22.npz",
+      "kept": true,
+      "sha256": "5da155a6f1e307d81d3b7857d28b82d157d3f219b751e1a292268fb91158b1c9",
+      "frames": 75,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/amass_side_step_left__B22__mirror_right.npz",
+      "kept": true,
+      "sha256": "bc238b530f2c69f2417269a3d472749cf88773fbcdc8df6d5a34df0bf1dd6f8d",
+      "frames": 75,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/amass_side_step_right__B23.npz",
+      "kept": true,
+      "sha256": "2853732f27df279e3eccc0195ae159640778cc6a8eee7542899d5304c47865c7",
+      "frames": 64,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/amass_side_step_right__B23__mirror_left.npz",
+      "kept": true,
+      "sha256": "28b923f1af5dfef6e513ae6ac2f237264299fb13bdea7eb1050268d53ac69b42",
+      "frames": 64,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/arc_jog_left_loop_002__A029.npz",
+      "kept": false,
+      "sha256": "ade61f095a81425a44253f07e5211cac698b30382e97bf22ccdd51d6d4c7c765",
+      "frames": 345,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/arc_jog_left_loop_002__A029__mirror_right.npz",
+      "kept": false,
+      "sha256": "1c8a5a409e4132750248b2d6402fbd486c7c4def2728618982f1042c0f1dff6d",
+      "frames": 345,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/arc_walk_left_loop_001__A029.npz",
+      "kept": true,
+      "sha256": "386edc84442b1e563e8f4e71e901e420bfdd2b73df5e5d14f6ef0d7cc58992d3",
+      "frames": 621,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/arc_walk_left_loop_001__A029__mirror_right.npz",
+      "kept": true,
+      "sha256": "6d279822d689a833dbe42a546a6affe5b0e0ed65e729c27306d5eb6717696207",
+      "frames": 621,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_arc_cw_loop_004__A045.npz",
+      "kept": false,
+      "sha256": "671661d8689af5ff7d301543c0f003232a674e1b4d690198c8fc3e8280d0b50f",
+      "frames": 443,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_arc_cw_loop_004__A045__mirror_ccw.npz",
+      "kept": false,
+      "sha256": "44efd9788881f3ccaa92cafc47d68085f1b2c71b33d463c893aa5f4706435727",
+      "frames": 443,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_backward_loop_002__A022.npz",
+      "kept": false,
+      "sha256": "b0dbe3a623757860cd78fd9868eacbd7bb5811bf1528d71d95c43549de1ab3e5",
+      "frames": 286,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_backward_loop_003__A023.npz",
+      "kept": false,
+      "sha256": "e81dd428f3b7d44228d409ef1cb83aca763c210c2727f3b19599ec6a848b3109",
+      "frames": 285,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_forward_loop_003__A021.npz",
+      "kept": false,
+      "sha256": "494c4d480418fc164e4ca4f0605c0577ad0a8aeb8f30c9a33967e119428085b1",
+      "frames": 401,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/jog_forward_loop_003__A022.npz",
+      "kept": false,
+      "sha256": "1cbf58c89f1b92e17d8e6ba9874b9db7509a81271f819b238d9688f3b2215272",
+      "frames": 286,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/neutral_idle_turn_360_001__A103.npz",
+      "kept": true,
+      "sha256": "264b68a630c545bfc0bfc45def7d163113af2a9b7ad409537cc27a72432ea01c",
+      "frames": 150,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/neutral_idle_turn_360_001__A103__mirror_left.npz",
+      "kept": true,
+      "sha256": "370767ca566e30c6230e3af090589c4cd14a29f1ec7967b849008e4d0ab8c42e",
+      "frames": 150,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/step_rotate_idle_000_002__A026.npz",
+      "kept": true,
+      "sha256": "3432b7ac4e82fb03a5b6ede7a9cd7b46d918a2e0aa56fc2ce420627478c6a4d4",
+      "frames": 500,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_arc_cw_loop_002__A046.npz",
+      "kept": true,
+      "sha256": "6fcfa7f90c32d484e42c0fb8eb870e87b2ed0f8313cef2bf01351e2880454501",
+      "frames": 291,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_arc_cw_loop_002__A046__mirror_ccw.npz",
+      "kept": true,
+      "sha256": "0e0325b0e812237631a3cbe7475087c71d17b96644dae4b6fa45d014d7257166",
+      "frames": 291,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_backward_loop_001__A022.npz",
+      "kept": true,
+      "sha256": "2fcfd6b45bcedd9c0f8961a0949b6845519b1cfcec320e66d585733db1f15144",
+      "frames": 520,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_backward_loop_001__A024.npz",
+      "kept": true,
+      "sha256": "29c2e8f0b8fc51412ace7cd86413d71af7b2aeaf06fa927b7a518026d9c10891",
+      "frames": 729,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_forward_loop_002__A022.npz",
+      "kept": true,
+      "sha256": "aa950cfc0589b5d0732302fbe3516a2417e21fb5762024152b6079370ddab4ef",
+      "frames": 456,
+      "fps": 50.0
+    },
+    {
+      "file": "WalkandRun/walk_forward_loop_002__A024.npz",
+      "kept": true,
+      "sha256": "71a4aba4c63e478ceddde60c0085a13dc30789b98935c294f88961c32166f273",
+      "frames": 482,
+      "fps": 50.0
+    }
+  ]
+}

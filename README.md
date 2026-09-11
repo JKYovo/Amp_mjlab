@@ -84,6 +84,8 @@ Main tasks:
 - `BXI-ELF3-AMP-Flat`
 - `BXI-ELF3-AMP-Flat-Loco` (stage-one walk/run-only pretraining)
 - `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
+- `BXI-ELF3-AMP-Rough-V4` (fresh blind GRAVEL walking, no running references; [V4 guide](docs/ELF3_V4_ZH.md))
+- `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
 
 ## Training
 

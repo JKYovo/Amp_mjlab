@@ -1,12 +1,14 @@
 """BXI ELF3 AMP locomotion environment configurations."""
 
 import os
+import math
+from copy import deepcopy
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
-from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg, GridPatternCfg, ObjRef
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from src.assets.robots.elf3.elf3_constants import (
@@ -21,6 +23,10 @@ from src.assets.robots.elf3.elf3_constants import (
 )
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
 from src.tasks.amp_loco.mdp.command import TurningVelocityCommandCfg
+from src.tasks.amp_loco.mdp.rough_height import (
+  root_height_below_terrain, track_root_height_terrain,
+)
+from src.tasks.amp_loco.mdp.tienkung_terrain import tienkung_gravel_cfg
 
 
 def elf3_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -279,6 +285,75 @@ def elf3_amp_flat_v3_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.events["init_motion_loader"].params["motion_dir"] = motion_dir
   cfg.events["init_motion_loader"].params["recovery_dir"] = recovery_dir
   cfg.events["reset_from_motion"].params["motion_dir"] = motion_dir
+  return cfg
+
+
+def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Walking-only rough task, preserving the blind 96-D actor contract."""
+  cfg = elf3_amp_flat_v3_1_env_cfg(play=play)
+  rough = elf3_amp_rough_env_cfg(play=play)
+  cfg.scene.terrain = deepcopy(rough.scene.terrain)
+  assert cfg.scene.terrain is not None
+  cfg.scene.terrain.terrain_generator = tienkung_gravel_cfg(play=play)
+  cfg.scene.terrain.max_init_terrain_level = 5
+  cfg.sim = deepcopy(rough.sim)
+  # Warp EPA scratch memory scales with nconmax * ccd_iterations * num_envs.
+  # Use the proven ELF3 flat-task cap; 500 needs >31 GB for one scratch array
+  # at 4096 worlds with the initial 256 contact capacity, before policy allocation.
+  cfg.sim.mujoco.ccd_iterations = 50
+  # Contact storage is pooled across worlds; njmax is a per-world limit.
+  # Bound both with scripts/check_elf3_v4.py's all-recovery, every-substep
+  # capacity check. Avoid reserving the old 256 / 1500 rough buffers, which
+  # leaves too little space to instantiate CUDA graphs at 4096 worlds.
+  cfg.sim.nconmax = 128
+  cfg.sim.njmax = 768
+  cfg.sim.contact_sensor_maxmatch = 1024
+  cfg.curriculum.pop('terrain_levels', None)
+  # Do not let the old 5000-iteration course restore running commands.
+  cfg.curriculum.pop('command_vel', None)
+  command = cfg.commands['twist']
+  assert isinstance(command, TurningVelocityCommandCfg)
+  command.ranges.lin_vel_x = (-0.6, 1.0)
+  command.ranges.lin_vel_y = (-0.5, 0.5)
+  command.ranges.ang_vel_z = (-1.57, 1.57)
+  command.ranges.heading = (-math.pi, math.pi)
+  command.turning_max_abs_ang_vel = 1.57
+
+  # Already present in V3.1: explicit local link-COM randomization, not a
+  # second perturbation or a literal translation of the whole-robot COM.
+  com = cfg.events['base_com']
+  com.mode = 'startup'
+  com.params.update(operation='add', distribution='uniform', shared_random=False,
+                    ranges={0: (-0.025, 0.025), 1: (-0.05, 0.05), 2: (-0.05, 0.05)})
+  com.params['asset_cfg'].body_names = (ELF3_POLICY_ROOT, ELF3_PHYSICAL_ROOT)
+
+  motion_base = os.path.abspath(os.path.join(os.path.dirname(
+    cfg.events['init_motion_loader'].params['motion_dir']), '..', 'amp_v4'))
+  cfg.events['init_motion_loader'].params.update(
+    motion_dir=os.path.join(motion_base, 'WalkandRun'),
+    recovery_dir=os.path.join(motion_base, 'Recovery'))
+  cfg.events['reset_from_motion'].params['motion_dir'] = os.path.join(motion_base, 'WalkandRun')
+
+  # Only reward/termination code consumes this 3x3 local probe. Terrain uses
+  # group 0; ELF3 collision/visual geoms use 3/2. Neither actor nor critic gains
+  # terrain inputs, so deployment needs no depth camera or lidar.
+  cfg.scene.sensors += (RayCastSensorCfg(
+    name='terrain_height', frame=ObjRef(type='body', name=ELF3_PHYSICAL_ROOT, entity='robot'),
+    ray_alignment='yaw', pattern=GridPatternCfg(size=(0.2, 0.2), resolution=0.1),
+    include_geom_groups=(0,), debug_vis=False,
+  ),)
+  cfg.rewards['track_root_height'].func = track_root_height_terrain
+  cfg.terminations['bad_base_height'].func = root_height_below_terrain
+  return cfg
+
+
+def elf3_amp_rough_v4_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """V4 without recovery initialization or delayed fall termination."""
+  cfg = elf3_amp_rough_v4_env_cfg(play=play)
+  cfg.events['init_motion_loader'].params.update(
+    recovery_dir=None, delay_reset_env_ratio=0.0, max_delay_steps=0)
+  # Keep the validated physics capacities: removing recovery does not remove
+  # fall contacts, nor does it automatically shrink Warp's preallocated arrays.
   return cfg
 
 
