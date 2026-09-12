@@ -159,8 +159,100 @@ class FeetTest(unittest.TestCase):
         f[2, 0] = torch.tensor([40., 0., 2.])
         torch.testing.assert_close(feet_stumble_v4(env), torch.tensor([0., 0., 1.]))
 
+    def test_directional_startup_metrics_have_explicit_denominators(self):
+        env = mock_env(3)
+        cmd = mock_command(env)
+        env.scene['robot'].data.body_link_pos_w = torch.zeros(3, 2, 3)
+        env.scene['robot'].data.body_link_pos_w[:, 0, 1] = .27
+        env.scene['robot'].data.body_link_quat_w = torch.tensor([1., 0., 0., 0.]).expand(3, 2, 4)
+        cmd.startup_phase[:] = 2
+        cmd.startup_target[:, 1] = torch.tensor([.5, -.5, .5])
+        cmd.startup_motion_time[2] = 3.  # Not a first-two-second sample.
+        env.scene['feet_self_contact'].data.force_history[0, 0, 0, 0] = 30.
+        env.reset_terminated = torch.tensor([False, True, False])
+        feet_safe_distance_v4(env, SceneEntityCfg('robot', body_ids=[0, 1]))
+        log = env.extras['log']
+        self.assertEqual(log['Metrics/v4/startup_pos_y_samples'].item(), 1.)
+        self.assertEqual(log['Metrics/v4/startup_pos_y_foot_contact_fraction'].item(), 1.)
+        self.assertEqual(log['Metrics/v4/startup_neg_y_terminated_fraction'].item(), 1.)
+        cmd.startup_phase.zero_()
+        feet_safe_distance_v4(env, SceneEntityCfg('robot', body_ids=[0, 1]))
+        self.assertEqual(log['Metrics/v4/startup_pos_y_samples'].item(), 0.)
+        self.assertEqual(log['Metrics/v4/startup_pos_y_foot_contact_fraction'].item(), 0.)
+
 
 class StartupTest(unittest.TestCase):
+    def test_integer_timers_launch_at_ten_steps_and_finish_exactly(self):
+        env = mock_env(1)
+        cmd = mock_command(env, startup_fraction=1., startup_wait_range=(.2, .2), startup_move_duration=.2)
+        ids = torch.arange(1)
+        cmd.prepare_reset(ids, torch.ones(1, dtype=torch.bool))
+        cmd.reset(ids)
+        for _ in range(9):
+            cmd.compute(.02)
+        self.assertEqual(cmd.startup_phase.item(), 1)
+        cmd.compute(.02)
+        self.assertEqual(cmd.startup_phase.item(), 2)
+        self.assertEqual(cmd.metrics['startup_attempts'].item(), 1.)
+        for _ in range(9):
+            cmd.compute(.02)
+        self.assertEqual(cmd.startup_phase.item(), 2)
+        cmd.compute(.02)
+        self.assertEqual(cmd.startup_phase.item(), 0)
+
+    def test_window_tolerates_soft_excursion_but_not_unsafe_launch(self):
+        env = mock_env(5)
+        cmd = mock_command(env, startup_fraction=1., startup_wait_range=(.2, .2),
+                           startup_filter_time_constant=.001)
+        ids = torch.arange(5)
+        cmd.prepare_reset(ids, torch.ones(5, dtype=torch.bool))
+        cmd.reset(ids)
+        for step in range(10):
+            # One mild excursion is tolerated; a lost support or hard spike clears history.
+            env.scene['robot'].data.root_link_ang_vel_w.zero_()
+            env.scene['robot'].data.root_link_ang_vel_w[0, 0] = .2 if step == 3 else 0.
+            env.scene['feet_ground_contact'].data.force[1, 0, 2] = 0. if step == 8 else 210.
+            env.scene['robot'].data.root_link_ang_vel_w[2, 0] = 2. if step == 8 else 0.
+            env.scene['robot'].data.projected_gravity_b[3, 2] = -.8 if step == 9 else -1.
+            # Enough past votes never permits launch on a currently soft-unstable frame.
+            env.scene['robot'].data.root_link_ang_vel_w[4, 0] = .2 if step == 9 else 0.
+            cmd.compute(.02)
+        self.assertEqual(cmd.startup_phase.tolist(), [2, 1, 1, 1, 1])
+        self.assertEqual(cmd.metrics['startup_hard_motion_fail_steps'][2].item(), 1.)
+        self.assertEqual(cmd.metrics['startup_contact_fail_steps'][1].item(), 1.)
+
+    def test_filtered_noise_launches_but_sustained_motion_times_out(self):
+        env = mock_env(4)
+        cmd = mock_command(env, startup_fraction=1., startup_wait_range=(1., 1.))
+        ids = torch.arange(4)
+        cmd.prepare_reset(ids, torch.ones(4, dtype=torch.bool))
+        cmd.reset(ids)
+        for step in range(150):
+            env.scene['robot'].data.root_link_ang_vel_w[0, 0] = .45 * (-1 if step % 2 else 1)
+            env.scene['robot'].data.root_link_ang_vel_w[1, 0] = .45
+            env.scene['robot'].data.root_link_lin_vel_w[2, 0] = .15
+            env.scene['robot'].data.projected_gravity_b[3, 2] = -.9
+            cmd.compute(.02)
+        self.assertEqual(cmd.metrics['startup_launches'].tolist(), [1., 0., 0., 0.])
+        self.assertEqual(cmd.metrics['startup_timeouts'].tolist(), [0., 1., 1., 1.])
+        self.assertEqual(cmd.startup_prepare_steps[1:].tolist(), [150, 150, 150])
+
+    def test_partial_reset_does_not_reuse_filter_or_window(self):
+        env = mock_env(2)
+        cmd = mock_command(env, startup_fraction=1., startup_wait_range=(1., 1.))
+        ids = torch.arange(2)
+        cmd.prepare_reset(ids, torch.ones(2, dtype=torch.bool))
+        cmd.reset(ids)
+        for _ in range(15):
+            cmd.compute(.02)
+        old = cmd._stable_history[1].clone()
+        cmd.prepare_reset(torch.tensor([0]), torch.tensor([True]))
+        self.assertEqual(cmd.startup_prepare_steps.tolist(), [0, 15])
+        self.assertFalse(cmd._stable_history[0].any())
+        self.assertEqual(cmd._stable_samples[0].item(), 0)
+        self.assertTrue(torch.all(cmd._filtered_angular[0] == 0.))
+        torch.testing.assert_close(cmd._stable_history[1], old)
+
     def test_modes_and_left_right_command_envelopes(self):
         torch.manual_seed(42)
         env = mock_env(20000)

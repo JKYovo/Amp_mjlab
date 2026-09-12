@@ -13,7 +13,9 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
 
-def check(task='BXI-ELF3-AMP-Rough-V4-Loco', checkpoint=None, num_envs=8, steps=400):
+def check(task='BXI-ELF3-AMP-Rough-V4-Loco', checkpoint=None, num_envs=8, steps=400, sample_actions=False):
+    if sample_actions and checkpoint is None:
+        raise ValueError('--sample-actions requires --checkpoint')
     torch.set_num_threads(2)
     cfg = load_env_cfg(task)
     cfg.scene.num_envs = num_envs
@@ -40,7 +42,9 @@ def check(task='BXI-ELF3-AMP-Rough-V4-Loco', checkpoint=None, num_envs=8, steps=
         assert (command.command[~recovery] == 0).all()
         launches = timeouts = resets = 0
         peaks = {name: 0. for name in ('feet_safe_distance', 'legs_stand_pose', 'feet_stumble')}
-        with torch.inference_mode():
+        safety = {direction: {'samples': 0, 'contacts': 0, 'terminated': 0}
+                  for direction in ('pos_y', 'neg_y')}
+        with torch.no_grad():
             for _ in range(steps):
                 assert raw['actor'].shape == (num_envs, 384)
                 torch.testing.assert_close(raw['actor'].reshape(num_envs, 4, 96)[:, -1, 6:9], command.command)
@@ -48,15 +52,24 @@ def check(task='BXI-ELF3-AMP-Rough-V4-Loco', checkpoint=None, num_envs=8, steps=
                 if policy is None:
                     action = torch.zeros(num_envs, env.action_manager.total_action_dim, device=env.device)
                 else:
-                    action = policy(raw['actor'])
+                    action = (runner.alg.policy.act(runner.obs_normalizer(raw['actor']))
+                              if sample_actions else policy(raw['actor']))
                     if agent.clip_actions is not None:
                         action = action.clamp(-agent.clip_actions, agent.clip_actions)
                 old_timeouts = command.metrics['startup_timeouts'].clone()
+                early = (phase == 2) & (command.startup_motion_time < 2.)
+                side_masks = {direction: early & (command.startup_target[:, 1] * sign > 0.)
+                              for direction, sign in (('pos_y', 1.), ('neg_y', -1.))}
+                contact = env.scene['feet_self_contact'].data.force_history.norm(dim=-1).amax(dim=(1, 2)) > 10.
                 raw, reward, terminated, truncated, _ = env.step(action)
                 done = terminated | truncated
                 launches += int(((phase == 1) & (command.startup_phase == 2) & ~done).sum())
                 timeouts += int((command.metrics['startup_timeouts'] > old_timeouts).sum())
                 resets += int(done.sum())
+                for direction, mask in side_masks.items():
+                    safety[direction]['samples'] += int(mask.sum())
+                    safety[direction]['contacts'] += int((mask & contact).sum())
+                    safety[direction]['terminated'] += int((mask & terminated).sum())
                 assert torch.isfinite(reward).all()
                 assert all(torch.isfinite(value).all() for value in raw.values())
                 assert (command.command[:, 0] >= -.60001).all()
@@ -75,6 +88,7 @@ def check(task='BXI-ELF3-AMP-Rough-V4-Loco', checkpoint=None, num_envs=8, steps=
             'checkpoint': checkpoint, 'startup_launches': launches,
             'startup_timeouts': timeouts, 'resets': resets, 'max_raw_cost': peaks,
             'finite_observations_rewards': True, 'training_performed': False,
+            'sample_actions': sample_actions, 'startup_direction_safety': safety,
         }), flush=True)
     finally:
         env.close()
@@ -87,4 +101,6 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint')
     parser.add_argument('--num-envs', type=int, default=8)
     parser.add_argument('--steps', type=int, default=400)
+    parser.add_argument('--sample-actions', action='store_true',
+                        help='Sample the saved PPO action distribution, rather than the deployment mean.')
     check(**vars(parser.parse_args()))

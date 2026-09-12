@@ -102,6 +102,16 @@ def feet_safe_distance_v4(
     env.extras['log']['Metrics/v4/foot_box_close_fraction'] = (separation < safety_margin).float().mean()
     contact = env.scene['feet_self_contact'].data.force_history.norm(dim=-1).amax(dim=(1, 2))
     env.extras['log']['Metrics/v4/foot_self_contact_fraction'] = (contact > 10.).float().mean()
+    # Conditional first-two-second metrics; counts distinguish no samples from no failures.
+    terminated = getattr(env, 'reset_terminated', torch.zeros_like(startup))
+    for direction, sign in (('pos_y', 1.), ('neg_y', -1.)):
+        mask = startup & (command.startup_target[:, 1] * sign > 0.)
+        count = mask.sum()
+        prefix = f'Metrics/v4/startup_{direction}'
+        env.extras['log'][f'{prefix}_samples'] = count.float()
+        for name, event in (('foot_contact', contact > 10.),
+                            ('foot_close', separation < safety_margin), ('terminated', terminated)):
+            env.extras['log'][f'{prefix}_{name}_fraction'] = (mask & event).sum() / count.clamp(min=1)
     return _apply_delay_env_reward_scaling(env, cost, True, 0.)
 
 
