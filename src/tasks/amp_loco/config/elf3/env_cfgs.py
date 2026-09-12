@@ -3,11 +3,14 @@
 import os
 import math
 from copy import deepcopy
+from dataclasses import fields
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg, GridPatternCfg, ObjRef
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
@@ -31,6 +34,9 @@ from src.tasks.amp_loco.mdp.rough_height import (
   track_root_height_terrain,
 )
 from src.tasks.amp_loco.mdp.tienkung_terrain import tienkung_gravel_cfg
+from src.tasks.amp_loco.mdp.v4_command import StartupVelocityCommandCfg
+from src.tasks.amp_loco.mdp.v4_events import reset_with_startup_v4, push_except_startup_preparation_v4
+from src.tasks.amp_loco.mdp import v4_rewards
 
 
 def elf3_amp_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -347,6 +353,11 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   command.ranges.ang_vel_z = (-1.0, 1.0)
   command.ranges.heading = (-math.pi / 2, math.pi / 2)
   command.turning_max_abs_ang_vel = 2.0
+  cfg.commands['twist'] = StartupVelocityCommandCfg(
+    **{field.name: getattr(command, field.name) for field in fields(command) if field.init},
+    # Automatic stand->move trials are training-only; play retains manual commands.
+    startup_fraction=0. if play else .25,
+  )
 
   # Already present in V3.1: explicit local link-COM randomization, not a
   # second perturbation or a literal translation of the whole-robot COM.
@@ -362,6 +373,9 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     motion_dir=os.path.join(motion_base, 'WalkandRun'),
     recovery_dir=os.path.join(motion_base, 'Recovery'))
   cfg.events['reset_from_motion'].params['motion_dir'] = os.path.join(motion_base, 'WalkandRun')
+  cfg.events['reset_from_motion'].func = reset_with_startup_v4
+  if 'push_robot' in cfg.events:
+    cfg.events['push_robot'].func = push_except_startup_preparation_v4
 
   # Only reward/termination code consumes this 3x3 local probe. Terrain uses
   # group 0; ELF3 collision/visual geoms use 3/2. Neither actor nor critic gains
@@ -373,6 +387,45 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   ),)
   cfg.rewards['track_root_height'].func = track_root_height_terrain
   cfg.terminations['bad_base_height'].func = root_height_below_terrain
+
+  # Keep the actor contract, AMP mixing and legacy tasks unchanged. Tracking
+  # widths grow with |command| independently per axis, including pure yaw +/-2.
+  anchor = SceneEntityCfg('robot', body_names=(ELF3_ANCHOR_BODY,))
+  cfg.rewards['track_anchor_linear_velocity'] = RewardTermCfg(
+    func=v4_rewards.track_horizontal_velocity_v4, weight=1.,
+    params={'command_name': 'twist', 'anchor_cfg': deepcopy(anchor),
+            'absolute_tolerance': (.25, .20), 'relative_tolerance': (.35, .35)},
+  )
+  cfg.rewards['track_anchor_angular_velocity'] = RewardTermCfg(
+    func=v4_rewards.track_yaw_velocity_v4, weight=1.,
+    params={'command_name': 'twist', 'anchor_cfg': deepcopy(anchor),
+            'absolute_tolerance': .35, 'relative_tolerance': .40},
+  )
+  cfg.rewards['vertical_velocity'] = RewardTermCfg(
+    func=v4_rewards.vertical_velocity_v4, weight=-.25,
+    params={'anchor_cfg': deepcopy(anchor)},
+  )
+  cfg.scene.sensors += (ContactSensorCfg(
+    name='feet_self_contact',
+    primary=ContactMatch(mode='subtree', pattern=ELF3_FOOT_BODIES[0], entity='robot'),
+    secondary=ContactMatch(mode='subtree', pattern=ELF3_FOOT_BODIES[1], entity='robot'),
+    fields=('found', 'force'), reduce='maxforce', num_slots=4, history_length=4,
+  ),)
+  cfg.rewards['feet_safe_distance'] = RewardTermCfg(
+    func=v4_rewards.feet_safe_distance_v4, weight=-.5,
+    params={'asset_cfg': SceneEntityCfg('robot', body_names=ELF3_FOOT_BODIES, preserve_order=True),
+            'safety_margin': .02, 'startup_multiplier': 1.5},
+  )
+  cfg.rewards['legs_stand_pose'] = RewardTermCfg(
+    func=v4_rewards.legs_stand_pose_v4, weight=-.5,
+    params={'asset_cfg': SceneEntityCfg('robot', joint_names=(r'[lr]_(hip_[xyz]|knee_y|ankle_[xy])_joint',)),
+            'linear_threshold': .02, 'angular_threshold': .02},
+  )
+  cfg.rewards['feet_stumble'] = RewardTermCfg(
+    func=v4_rewards.feet_stumble_v4, weight=-.1,
+    params={'sensor_name': 'feet_ground_contact', 'horizontal_vertical_ratio': 5.,
+            'minimum_horizontal_force': 20.},
+  )
   return cfg
 
 

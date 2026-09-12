@@ -118,6 +118,9 @@ class V4Test(unittest.TestCase):
             self.assertEqual(boundary.params['half_extent_y'], half_extent if play else 80.0)
             self.assertEqual(boundary.params['safety_margin'], 1.0)
             for name, reward in cfg.rewards.items():
+                if name in ('track_anchor_linear_velocity', 'track_anchor_angular_velocity',
+                            'feet_safe_distance', 'legs_stand_pose', 'feet_stumble', 'vertical_velocity'):
+                    continue
                 self.assertEqual(reward.weight, v3.rewards[name].weight)
                 self.assertEqual(reward.params, v3.rewards[name].params)
         runner = load_rl_cfg('BXI-ELF3-AMP-Rough-V4')
