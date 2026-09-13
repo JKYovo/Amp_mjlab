@@ -12,9 +12,9 @@ def assign_interior_terrain_origins(env, env_ids=None, margin_rows=2,
                                     margin_cols=2):
     """Place environments away from the generator's outer border boxes.
 
-    All V4 tiles use the same randomized GRAVEL distribution, so excluding the
+    All V4 tiles use the same randomized roughness distribution, so excluding the
     outer tile rings does not remove a terrain class.  It only leaves generated
-    gravel as a guard band between normal episode motion and the flat border
+    rough terrain as a guard band between normal episode motion and the flat border
     boxes surrounding the complete terrain grid.
     """
     terrain = env.scene.terrain

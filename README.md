@@ -79,8 +79,10 @@ python scripts/list_envs.py --keyword AMP
 Main tasks:
 
 - `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
-- `BXI-ELF3-AMP-Rough-V4` (V4 with fall recovery: joint blind GRAVEL walking + get-up training; no running references; [V4 guide](docs/ELF3_V4_ZH.md))
+- `BXI-ELF3-AMP-Rough-V4` (V4 with fall recovery: joint blind walking on mjlab's native random rough terrain + get-up training; no running references; [V4 guide](docs/ELF3_V4_ZH.md))
 - `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
+- `BXI-ELF3-AMP-Flat-V4` (V4 with fall recovery, using V3.1's flat plane)
+- `BXI-ELF3-AMP-Flat-V4-Loco` (flat V4 without fall recovery)
 
 ## Training
 
@@ -93,10 +95,14 @@ ELF3:
 ```bash
 source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
-# V4 with fall recovery
+# V4 rough with fall recovery
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
-# V4 without fall recovery
+# V4 rough without fall recovery
 python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
+# V4 flat with fall recovery
+python scripts/train.py BXI-ELF3-AMP-Flat-V4 --env.scene.num-envs=4096
+# V4 flat without fall recovery
+python scripts/train.py BXI-ELF3-AMP-Flat-V4-Loco --env.scene.num-envs=4096
 ```
 
 Logs are saved by default to:
@@ -105,6 +111,8 @@ Logs are saved by default to:
 - V3.1: `logs/rsl_rl/elf3_amp_locomotion_v3_1/<time_stamp_run>/`
 - V4: `logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
 - V4-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_loco/<time_stamp_run>/`
+- V4-Flat: `logs/rsl_rl/elf3_amp_locomotion_v4_flat/<time_stamp_run>/`
+- V4-Flat-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_flat_loco/<time_stamp_run>/`
 
 ## ELF3 Notes
 

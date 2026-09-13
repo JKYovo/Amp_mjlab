@@ -5,6 +5,8 @@ import os
 import time
 
 os.environ.setdefault('MUJOCO_GL', 'egl')
+import mujoco
+import numpy as np
 import torch
 import warp as wp
 import src.tasks  # noqa: F401
@@ -15,8 +17,12 @@ from src.tasks.amp_loco.mdp.rough_height import root_clearance
 
 
 def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
-          recovery_fraction=None):
-    cfg = load_env_cfg('BXI-ELF3-AMP-Rough-V4')
+          recovery_fraction=None, device='cuda:0', seed=42,
+          task='BXI-ELF3-AMP-Rough-V4', verify_contacts=False):
+    if device == 'cpu':
+        torch.set_num_threads(2)
+    cfg = load_env_cfg(task)
+    cfg.seed = seed
     cfg.scene.num_envs = num_envs
     if nconmax is not None:
         cfg.sim.nconmax = nconmax
@@ -27,12 +33,27 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
     if recovery_fraction is not None:
         cfg.events['init_motion_loader'].params['delay_reset_env_ratio'] = recovery_fraction
     started = time.monotonic()
-    env = ManagerBasedRlEnv(cfg, device='cuda:0')
+    if device.startswith('cuda') and torch.cuda.mem_get_info()[0] < 2 * 2**30:
+        raise RuntimeError('Need at least 2 GiB free GPU memory for the isolated check')
+    env = ManagerBasedRlEnv(cfg, device=device)
     try:
         peak = dict(contacts=0, broadphase_pairs=0, constraints_per_world=0,
-                    contacts_per_world=0, gpu_used_mib=0)
+                    contacts_per_world=0, gpu_used_mib=0,
+                    foot_ground_contact_depth_mm=0.)
         data = env.sim.wp_data
+        model = env.sim.mj_model
+        feet = torch.tensor([g for g in range(model.ngeom)
+                             if 'ankle_x_link_collision' in (model.geom(g).name or '')],
+                            device=env.device)
+        ground = torch.tensor([g for g in range(model.ngeom) if model.geom_group[g] == 0],
+                              device=env.device)
+        worst_case = None
+        before_qpos = None
         def capacity_check():
+            nonlocal worst_case
+            # Check raw physics before the environment can reset a bad state.
+            for field in ('qpos', 'qvel', 'qacc', 'qacc_warmstart', 'sensordata'):
+                assert torch.isfinite(wp.to_torch(getattr(data, field))).all(), field
             contacts = int(wp.to_torch(data.nacon).item())
             pairs = int(wp.to_torch(data.ncollision).item())
             constraints = int(wp.to_torch(data.nefc).max().item())
@@ -41,12 +62,38 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
             assert constraints < cfg.sim.njmax, (constraints, cfg.sim.njmax)
             per_world = (torch.bincount(wp.to_torch(data.contact.worldid)[:contacts].long(),
                                        minlength=num_envs).max().item() if contacts else 0)
-            used_mib = (torch.cuda.mem_get_info()[1] - torch.cuda.mem_get_info()[0]) / 2**20
-            for name, value in zip(peak, (contacts, pairs, constraints, per_world, used_mib)):
+            used_mib = ((torch.cuda.mem_get_info()[1] - torch.cuda.mem_get_info()[0]) / 2**20
+                        if str(env.device).startswith('cuda') else 0.)
+            for name, value in zip(('contacts', 'broadphase_pairs', 'constraints_per_world',
+                                    'contacts_per_world', 'gpu_used_mib'),
+                                   (contacts, pairs, constraints, per_world, used_mib)):
                 peak[name] = max(peak[name], value)
+            if contacts:
+                geoms = wp.to_torch(data.contact.geom)[:contacts].long()
+                distances = wp.to_torch(data.contact.dist)[:contacts]
+                assert torch.isfinite(distances).all(), 'contact distance'
+                assert torch.isfinite(wp.to_torch(data.contact.frame)[:contacts]).all(), 'contact frame'
+                mask = ((torch.isin(geoms[:, 0], feet) | torch.isin(geoms[:, 1], feet))
+                        & (torch.isin(geoms[:, 0], ground) | torch.isin(geoms[:, 1], ground)))
+                if mask.any():
+                    # This is solver contact distance, NOT measured physical penetration.
+                    depth_mm = float((-distances[mask].min()).clamp_min(0) * 1000)
+                    if verify_contacts and depth_mm > peak['foot_ground_contact_depth_mm']:
+                        index = torch.where(mask)[0][distances[mask].argmin()]
+                        world = int(wp.to_torch(data.contact.worldid)[index])
+                        qpos = before_qpos if before_qpos is not None else wp.to_torch(data.qpos)
+                        worst_case = dict(
+                            world=world, warp_distance_mm=-depth_mm,
+                            geom_ids=geoms[index].cpu().tolist(),
+                            warp_normal=wp.to_torch(data.contact.frame)[index, 0].cpu().tolist(),
+                            qpos=qpos[world].cpu().numpy().copy())
+                    peak['foot_ground_contact_depth_mm'] = max(peak['foot_ground_contact_depth_mm'], depth_mm)
         # Inspect every physics substep, not just the final decimated state.
         original_step = env.sim.step
         def measured_step():
+            nonlocal before_qpos
+            if verify_contacts:
+                before_qpos = wp.to_torch(data.qpos).clone()
             original_step()
             capacity_check()
         env.sim.step = measured_step
@@ -54,7 +101,7 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
         capacity_check()
         assert obs['actor'].shape == (num_envs, 384), obs['actor'].shape
         env_origins = env.scene.env_origins
-        # Training keeps two generated gravel-tile rings between spawn origins
+        # Training keeps two generated rough-tile rings between spawn origins
         # and the outer border boxes: x origins +/-20 m, y origins +/-60 m.
         assert torch.all(env_origins[:, 0].abs() <= 20.00001), env_origins[:, 0]
         assert torch.all(env_origins[:, 1].abs() <= 60.00001), env_origins[:, 1]
@@ -68,11 +115,11 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
         limits = torch.tensor([.025, .05, .05])
         assert torch.all(delta.abs() <= limits + 1e-6)
         assert torch.all(delta.std(dim=0) > .001), 'COM randomization not varying per world'
-        assert model.nhfield == 8000, model.nhfield
+        terrain = cfg.scene.terrain.terrain_generator
+        tiles = terrain.num_rows * terrain.num_cols
+        assert model.nhfield == tiles, (model.nhfield, tiles)
         # Probe hits must be terrain, not robot geometry.
         sensor = env.scene['terrain_height']
-        # Rays exactly on hfield-strip seams may miss through float rounding;
-        # height estimation masks those rays and uses the other local hits.
         assert torch.all((sensor.data.distances >= 0).any(dim=-1))
         command = env.command_manager.get_term('twist')
         seen = []
@@ -94,9 +141,9 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
             assert torch.isfinite(root_clearance(env)).all()
             if (step + 1) % 100 == 0:
                 print('V4_CAPACITY_PROGRESS ' + json.dumps({'steps': step + 1, **peak}), flush=True)
-        report = {'num_envs': num_envs, 'steps': steps,
-                  'actor_shape': list(obs['actor'].shape), 'terrain_tiles': 200,
-                  'collision_hfield_strips': model.nhfield,
+        report = {'task': task, 'seed': seed, 'num_envs': num_envs, 'steps': steps,
+                  'actor_shape': list(obs['actor'].shape), 'terrain_tiles': tiles,
+                  'collision_heightfields': model.nhfield, 'device': device,
                   'com_offset_min_xyz_m': delta.amin(dim=(0, 1)).tolist(),
                   'com_offset_max_xyz_m': delta.amax(dim=(0, 1)).tolist(),
                   'sampled_command_min': commands.amin(dim=0).tolist(),
@@ -104,9 +151,38 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
                   'env_origin_min_xyz_m': env_origins.amin(dim=0).tolist(),
                   'env_origin_max_xyz_m': env_origins.amax(dim=0).tolist(),
                   'finite_observations_rewards': True,
+                  'finite_raw_physics_every_substep': True,
                   'nconmax': cfg.sim.nconmax, 'njmax': cfg.sim.njmax,
                   'ccd_iterations': cfg.sim.mujoco.ccd_iterations,
                   'capacity_peak': peak, 'elapsed_s': time.monotonic() - started}
+        if worst_case is not None:
+            native = mujoco.MjData(model)
+            native.qpos[:] = worst_case.pop('qpos')
+            mujoco.mj_forward(model, native)
+            foot = next(g for g in worst_case['geom_ids'] if g in feet.tolist())
+            contacts = [c for c in native.contact
+                        if foot in c.geom and any(model.geom_group[g] == 0 for g in c.geom)]
+            worst_case['native_min_distance_mm'] = min((c.dist * 1000 for c in contacts), default=None)
+            worst_case['geom_names'] = [model.geom(g).name for g in worst_case['geom_ids']]
+            # Vertex-to-ground vertical depths are an independent geometry probe,
+            # not an exact convex-volume penetration calculation.
+            mesh = model.geom_dataid[foot]
+            start = model.mesh_vertadr[mesh]
+            count = model.mesh_vertnum[mesh]
+            vertices = (model.mesh_vert[start:start + count]
+                        @ native.geom_xmat[foot].reshape(3, 3).T + native.geom_xpos[foot])
+            groups = np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8)
+            geom_id = np.zeros(1, dtype=np.int32)
+            depths = []
+            ray_z = max(2., float(vertices[:, 2].max()) + 1.)
+            for vertex in vertices:
+                distance = mujoco.mj_ray(model, native,
+                    np.array([vertex[0], vertex[1], ray_z]), np.array([0., 0., -1.]),
+                    groups, True, model.geom_bodyid[foot], geom_id)
+                if distance >= 0:
+                    depths.append((ray_z - distance - vertex[2]) * 1000)
+            worst_case['max_vertex_ground_depth_mm'] = max(depths, default=None)
+            report['worst_contact_native_geometry_check'] = worst_case
         print('V4_SMOKE_RESULT ' + json.dumps(report), flush=True)
     finally:
         env.close()
@@ -120,5 +196,10 @@ if __name__ == '__main__':
     parser.add_argument('--njmax', type=int)
     parser.add_argument('--ccd-iterations', type=int)
     parser.add_argument('--recovery-fraction', type=float)
+    parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--task', choices=['BXI-ELF3-AMP-Rough-V4', 'BXI-ELF3-AMP-Rough-V4-Loco'],
+                        default='BXI-ELF3-AMP-Rough-V4')
+    parser.add_argument('--verify-contacts', action='store_true')
     args = parser.parse_args()
     check(**vars(args))

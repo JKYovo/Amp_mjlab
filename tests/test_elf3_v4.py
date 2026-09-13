@@ -2,6 +2,7 @@ import json
 import contextlib
 import io
 import math
+from dataclasses import fields
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -13,6 +14,7 @@ import torch
 
 import src.tasks  # noqa: F401
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
+from mjlab.terrains import HfRandomUniformTerrainCfg
 from scripts.build_elf3_amp_v4_dataset import SOURCE, OUTPUT, REMOVED, sha256
 from src.tasks.amp_loco.mdp.rough_height import (
     assign_interior_terrain_origins,
@@ -21,11 +23,46 @@ from src.tasks.amp_loco.mdp.rough_height import (
     root_outside_terrain_interior,
 )
 from src.tasks.amp_loco.mdp.tienkung_terrain import TienKungGravelTerrainCfg
+from src.tasks.amp_loco.mdp.terrain import elf3_v4_rough_terrain_cfg
 from src.tasks.amp_loco.ampmotion_loader import MotionLoader
 from rsl_rl.utils.motion_loader import AMPLoader
 
 
 class V4Test(unittest.TestCase):
+    def test_flat_v4_variants_preserve_v4_settings_on_v31_plane(self):
+        pairs = [('BXI-ELF3-AMP-Flat-V4', 'BXI-ELF3-AMP-Rough-V4',
+                  'elf3_amp_locomotion_v4_flat', .4),
+                 ('BXI-ELF3-AMP-Flat-V4-Loco', 'BXI-ELF3-AMP-Rough-V4-Loco',
+                  'elf3_amp_locomotion_v4_flat_loco', 0.)]
+        for flat_task, rough_task, log_name, recovery_ratio in pairs:
+            for play in (False, True):
+                cfg = load_env_cfg(flat_task, play=play)
+                rough = load_env_cfg(rough_task, play=play)
+                v31 = load_env_cfg('BXI-ELF3-AMP-Flat-V3-1', play=play)
+                # EntityCfg creates a fresh empty-spec factory on construction;
+                # compare its settings, not the identity of that callable.
+                for field in fields(cfg.scene.terrain):
+                    if field.name != 'spec_fn':
+                        self.assertEqual(getattr(cfg.scene.terrain, field.name),
+                                         getattr(v31.scene.terrain, field.name))
+                self.assertEqual(cfg.scene.terrain.terrain_type, 'plane')
+                self.assertIsNone(cfg.scene.terrain.terrain_generator)
+                for field in ('sim', 'commands', 'rewards', 'observations', 'curriculum'):
+                    self.assertEqual(getattr(cfg, field), getattr(rough, field))
+                self.assertNotIn('interior_terrain_origins', cfg.events)
+                self.assertNotIn('terrain_outer_boundary', cfg.terminations)
+                self.assertEqual(cfg.events['base_com'], rough.events['base_com'])
+                self.assertEqual(cfg.events['init_motion_loader'], rough.events['init_motion_loader'])
+                self.assertEqual(cfg.events['init_motion_loader'].params['delay_reset_env_ratio'], recovery_ratio)
+                self.assertEqual(cfg.events['reset_from_motion'], rough.events['reset_from_motion'])
+            runner = load_rl_cfg(flat_task)
+            rough_runner = load_rl_cfg(rough_task)
+            self.assertEqual(runner.experiment_name, log_name)
+            self.assertFalse(runner.resume)
+            self.assertEqual(runner.max_iterations, 200001)
+            for field in ('amp_motion_files', 'algorithm', 'actor', 'critic', 'num_steps_per_env'):
+                self.assertEqual(getattr(runner, field), getattr(rough_runner, field))
+
     def test_v4_loco_config_and_immediate_termination(self):
         for play in (False, True):
             full = load_env_cfg('BXI-ELF3-AMP-Rough-V4', play=play)
@@ -95,7 +132,16 @@ class V4Test(unittest.TestCase):
             terrain = cfg.scene.terrain.terrain_generator
             self.assertFalse(terrain.curriculum)
             self.assertEqual(set(terrain.sub_terrains), {'random_rough'})
-            self.assertEqual(terrain.sub_terrains['random_rough'].noise_range, (-.02, .04))
+            native = terrain.sub_terrains['random_rough']
+            self.assertIs(type(native), HfRandomUniformTerrainCfg)
+            self.assertEqual(native.proportion, 1.)
+            self.assertEqual(native.noise_range, (0., .06))
+            self.assertEqual(native.noise_step, .02)
+            self.assertEqual(native.horizontal_scale, .2)
+            self.assertEqual(native.downsampled_scale, .2)
+            self.assertEqual(native.border_width, .25)
+            self.assertEqual(terrain.num_rows, 5 if play else 10)
+            self.assertEqual(terrain.num_cols, 5 if play else 20)
             self.assertNotIn('terrain_scan', [s.name for s in cfg.scene.sensors])
             for group in ('actor', 'critic', 'amp'):
                 self.assertEqual(list(cfg.observations[group].terms), list(v3.observations[group].terms))
@@ -145,7 +191,23 @@ class V4Test(unittest.TestCase):
             if entry['kept']:
                 self.assertEqual(sha256(OUTPUT/relative), entry['sha256'])
 
-    def test_gravel_geometry_signed_heights_and_origin(self):
+    def test_native_rough_single_heightfield_geometry(self):
+        cfg = elf3_v4_rough_terrain_cfg().sub_terrains['random_rough']
+        cfg.size = (8., 8.)  # TerrainGenerator supplies the parent tile size.
+        spec = mujoco.MjSpec()
+        spec.worldbody.add_body(name='terrain')
+        output = cfg.function(.5, spec, np.random.default_rng(42))
+        model = spec.compile()
+        self.assertEqual(len(output.geometries), 1)
+        self.assertEqual(model.nhfield, 1)
+        self.assertEqual(model.hfield_nrow[0], 40)
+        self.assertEqual(model.hfield_ncol[0], 40)
+        self.assertEqual(model.geom_type[0], mujoco.mjtGeom.mjGEOM_HFIELD)
+        heights = model.hfield_data * model.hfield_size[0, 2] + model.geom_pos[0, 2]
+        np.testing.assert_allclose(np.unique(heights), [0., .02, .04, .06], atol=1e-8)
+        self.assertAlmostEqual(output.origin[2], .03)
+
+    def test_legacy_gravel_geometry_signed_heights_and_origin(self):
         cfg = TienKungGravelTerrainCfg(size=(8., 8.), proportion=.2)
         grid = cfg.height_grid(np.random.default_rng(42))
         self.assertEqual(grid.shape, (81, 81))

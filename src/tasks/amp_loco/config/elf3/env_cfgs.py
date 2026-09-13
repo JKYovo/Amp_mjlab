@@ -33,7 +33,7 @@ from src.tasks.amp_loco.mdp.rough_height import (
   root_outside_terrain_interior,
   track_root_height_terrain,
 )
-from src.tasks.amp_loco.mdp.tienkung_terrain import tienkung_gravel_cfg
+from src.tasks.amp_loco.mdp.terrain import elf3_v4_rough_terrain_cfg
 from src.tasks.amp_loco.mdp.v4_command import StartupVelocityCommandCfg
 from src.tasks.amp_loco.mdp.v4_events import reset_with_startup_v4, push_except_startup_preparation_v4
 from src.tasks.amp_loco.mdp import v4_rewards
@@ -304,7 +304,7 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   rough = elf3_amp_rough_env_cfg(play=play)
   cfg.scene.terrain = deepcopy(rough.scene.terrain)
   assert cfg.scene.terrain is not None
-  cfg.scene.terrain.terrain_generator = tienkung_gravel_cfg(play=play)
+  cfg.scene.terrain.terrain_generator = elf3_v4_rough_terrain_cfg(play=play)
   terrain_generator = cfg.scene.terrain.terrain_generator
   cfg.scene.terrain.max_init_terrain_level = 5
   cfg.sim = deepcopy(rough.sim)
@@ -322,7 +322,7 @@ def elf3_amp_rough_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.curriculum.pop('terrain_levels', None)
   # The generated terrain is surrounded by four flat boxes. MuJoCo-Warp can
   # become unstable when an ELF3 foot mesh crosses that outer geom seam and
-  # penetrates a border box. Spawn only on interior gravel tiles, leaving two
+  # penetrates a border box. Spawn only on interior rough tiles, leaving two
   # tile rings in training (one in the smaller play grid) as a guard band.
   tile_margin = 1 if play else 2
   cfg.events['interior_terrain_origins'] = EventTermCfg(
@@ -436,6 +436,29 @@ def elf3_amp_rough_v4_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     recovery_dir=None, delay_reset_env_ratio=0.0, max_delay_steps=0)
   # Keep the validated physics capacities: removing recovery does not remove
   # fall contacts, nor does it automatically shrink Warp's preallocated arrays.
+  return cfg
+
+
+def elf3_amp_flat_v4_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """V4 with recovery, on the same native plane as V3.1.
+
+  Retain V4 commands, rewards, COM randomization and startup trials. The
+  internal terrain-height probe still returns zero on the plane and is not
+  part of the deployment observations.
+  """
+  cfg = elf3_amp_rough_v4_env_cfg(play=play)
+  flat = elf3_amp_flat_v3_1_env_cfg(play=play)
+  cfg.scene.terrain = deepcopy(flat.scene.terrain)
+  cfg.events.pop('interior_terrain_origins', None)
+  cfg.terminations.pop('terrain_outer_boundary', None)
+  return cfg
+
+
+def elf3_amp_flat_v4_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Flat V4 without recovery initialization or AMP recovery references."""
+  cfg = elf3_amp_flat_v4_env_cfg(play=play)
+  cfg.events['init_motion_loader'].params.update(
+    recovery_dir=None, delay_reset_env_ratio=0.0, max_delay_steps=0)
   return cfg
 
 
