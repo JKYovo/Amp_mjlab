@@ -42,138 +42,50 @@ override order, and deployment checks.
 
 ## Quick Start
 
-This quick start documents only the current ELF3 V3.1 and V4 tasks. Run commands
-from the repository root. Checkpoints and credentials are not included in Git.
-
-### 1. Install in an isolated environment
+### 1. Install
 
 ```bash
-git clone https://github.com/JKYovo/Amp_mjlab.git
-cd Amp_mjlab
-conda create --prefix ./.venv python=3.11.16 pip -y
-.venv/bin/python -m pip install -r requirements-elf3.txt
-.venv/bin/python -m pip install --no-deps -e ./rsl_rl
-.venv/bin/python -m pip install --no-deps -e .
+conda activate mjlab
+cd AMP_mjlab
+python -m pip install -e .
 ```
 
-The repository's AMP `rsl_rl` fork must override the upstream package. Exact
-host versions and CUDA installation caveats are in the
-[environment guide](docs/ELF3_DEPLOYMENT_ZH.md).
+### 2. Apply mjlab Patch (Optional)
 
-### 2. Apply the required observation-history patch
+If you do not apply this patch, remove `history_ordering` configuration from the code.
+
+What this patch does:
+
+- It adds an option for how observation history is flattened: by time (`time`) or by term (`term`).
+- Default mjlab behavior supports only `term` ordering.
+
+Patch file:
+
+- `mjlab_patch/mjlab/managers/observation_manager.py`
+
+Example command:
 
 ```bash
-MJLAB_DIR="$(.venv/bin/python -c 'import pathlib, mjlab; print(pathlib.Path(mjlab.__file__).parent)')"
 cp mjlab_patch/mjlab/managers/observation_manager.py \
-  "$MJLAB_DIR/managers/observation_manager.py"
-.venv/bin/python scripts/list_envs.py --keyword ELF3
+  /home/crp/miniconda3/envs/mjlab/lib/python3.11/site-packages/mjlab/managers/observation_manager.py
 ```
 
-Keep this patch: the policy contract is 96 values per frame, four frames in
-time order (384 inputs), and 29 joint actions. Removing `history_ordering`
-does not preserve the deployment interface.
-
-### 3. Choose a task
-
-| Task ID | Terrain / skills | AMP dataset | Default final checkpoint |
-| --- | --- | --- | --- |
-| `BXI-ELF3-AMP-Flat-V3-1` | Flat; walk/run + recovery | `src/assets/motions/elf3/amp_v3_1` | `model_100000.pt` |
-| `BXI-ELF3-AMP-Rough-V4` | GRAVEL; walking + recovery | `src/assets/motions/elf3/amp_v4` | `model_200000.pt` |
-| `BXI-ELF3-AMP-Rough-V4-Loco` | GRAVEL; walking, no recovery training | `src/assets/motions/elf3/amp_v4/WalkandRun` | `model_200000.pt` |
-
-The two joint tasks use 40% recovery environments with a maximum five-second
-delayed-termination window. Locomotion and recovery train together, not as two
-mandatory stages. V4-Loco excludes recovery references and recovery resets and
-uses immediate fall termination; it otherwise keeps the V4 physics capacities.
-There is currently no registered V3.1-Loco or flat V4 task. Both V4 tasks are
-blind GRAVEL locomotion without `terrain_scan`; see the [V4 guide](docs/ELF3_V4_ZH.md).
-
-### 4. Start fresh training
-
-Run **one** of these commands, not all three simultaneously:
+### 3. List Available Tasks
 
 ```bash
-# V3.1: flat locomotion and recovery
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 \
-  --env.scene.num-envs 4096 --agent.resume False \
-  --target-iteration 100001 --enable-nan-guard True
-
-# V4: GRAVEL walking and recovery
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
-  --env.scene.num-envs 4096 --agent.resume False \
-  --target-iteration 200001 --enable-nan-guard True
-
-# V4: GRAVEL walking without recovery training
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco \
-  --env.scene.num-envs 4096 --agent.resume False \
-  --target-iteration 200001 --enable-nan-guard True
+python scripts/list_envs.py --keyword AMP
 ```
 
-Iterations are zero-indexed: targets 100001 / 200001 save through iteration
-100000 / 200000. Checkpoints are saved every 100 iterations. Default log roots:
+Main tasks:
 
-- V3.1: `logs/rsl_rl/elf3_amp_locomotion_v3_1/<RUN_DIR>/`
-- V4 joint: `logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>/`
-- V4-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_loco/<RUN_DIR>/`
-
-4096-env V4 training uses approximately 20 GiB on the tested RTX 4090.
-Reduce the environment count if necessary; removing recovery does not
-automatically shrink the preallocated physics buffers.
-
-### 5. Play a saved policy / export ONNX
-
-Replace `<RUN_DIR>` and `<ITER>` with an existing run and checkpoint. Use the
-same task as training; the current iteration is not necessarily a saved file.
-
-```bash
-.venv/bin/python scripts/play.py BXI-ELF3-AMP-Flat-V3-1 \
-  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v3_1/<RUN_DIR>/model_<ITER>.pt" \
-  --num-envs 20 --export-onnx False
-
-.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4 \
-  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>/model_<ITER>.pt" \
-  --num-envs 20 --export-onnx False
-
-.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4-Loco \
-  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v4_loco/<RUN_DIR>/model_<ITER>.pt" \
-  --num-envs 20 --export-onnx False
-```
-
-To export, change to `--export-onnx True` (the default). Play writes
-`<RUN_DIR>/export/<TASK_ID>_model_<ITER>.onnx`, including observation normalization;
-do not normalize its inputs twice. Use `--export-onnx False`, not
-`--no-export-onnx`. Joint-task play retains 40% recovery environments; V4 play
-disables automatic startup trials and retains ordinary/manual commands.
-Exit with `Ctrl+C`; avoid multiple GPU play processes alongside training.
-
-### 6. Resume training and log to SwanLab
-
-Resume the same V4 joint run, preserving the optimizer, normalizers and saved
-curriculum clock. `<RUN_DIR>` is the directory name, not the full path:
-
-```bash
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
-  --env.scene.num-envs 4096 --agent.resume True \
-  --agent.load-run '<RUN_DIR>' --agent.load-checkpoint 'model_<ITER>.pt' \
-  --log-dir "logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>" \
-  --resume-optimizer True --target-iteration 200001 --enable-nan-guard True
-```
-
-For V3.1 or V4-Loco, use the corresponding task and log root above; V3.1 uses
-`--target-iteration 100001`. The target is the total final iteration count,
-not additional iterations. Cross-task fine-tuning also requires selecting the
-source experiment root via `--agent.experiment-name`; do not merely change the task ID.
-
-```bash
-# Log in separately on each machine; never put an API key in the repository.
-.venv/bin/swanlab login
-```
-
-For a new experiment, append `--swanlab-project locomotion
---swanlab-experiment-name YOUR_EXPERIMENT --swanlab-resume never` to a training
-command. To continue an existing experiment, append `--swanlab-project locomotion
---swanlab-id YOUR_RUN_ID --swanlab-resume must`. Do not resume the same SwanLab
-experiment after rolling back below already uploaded steps; create a new one.
+- `Unitree-G1-AMP-Rough`
+- `Unitree-G1-AMP-Flat`
+- `BXI-ELF3-AMP-Rough`
+- `BXI-ELF3-AMP-Flat`
+- `BXI-ELF3-AMP-Flat-Loco` (stage-one walk/run-only pretraining)
+- `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
+- `BXI-ELF3-AMP-Rough-V4` (fresh blind GRAVEL walking, no running references; [V4 guide](docs/ELF3_V4_ZH.md))
+- `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
 
 ## Training
 
