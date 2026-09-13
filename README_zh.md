@@ -81,7 +81,7 @@ python scripts/list_envs.py --keyword AMP
 主要任务：
 
 - `BXI-ELF3-AMP-Flat-V3-1`（使用修正后的 V3.1 数据集，从头联合训练平地走跑与起身）
-- `BXI-ELF3-AMP-Rough-V4`（从头联合训练 GRAVEL 盲走与起身，不含跑步参考；[V4 文档](docs/ELF3_V4_ZH.md)）
+- `BXI-ELF3-AMP-Rough-V4`（V4 带起身：从头联合训练 GRAVEL 盲走与倒地起身，不含跑步参考；[V4 文档](docs/ELF3_V4_ZH.md)）
 - `BXI-ELF3-AMP-Rough-V4-Loco`（相同 V4 地形与指令，不使用起身重置或 AMP 起身参考）
 
 ## 训练
@@ -96,7 +96,9 @@ ELF3 平地与粗糙地形训练：
 ```bash
 source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
+# V4 带起身
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
+# V4 不带起身
 python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
 ```
 

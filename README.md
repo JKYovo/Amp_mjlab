@@ -79,7 +79,7 @@ python scripts/list_envs.py --keyword AMP
 Main tasks:
 
 - `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
-- `BXI-ELF3-AMP-Rough-V4` (fresh blind GRAVEL walking, no running references; [V4 guide](docs/ELF3_V4_ZH.md))
+- `BXI-ELF3-AMP-Rough-V4` (V4 with fall recovery: joint blind GRAVEL walking + get-up training; no running references; [V4 guide](docs/ELF3_V4_ZH.md))
 - `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
 
 ## Training
@@ -93,7 +93,9 @@ ELF3:
 ```bash
 source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
+# V4 with fall recovery
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
+# V4 without fall recovery
 python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
 ```
 
