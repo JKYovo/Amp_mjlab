@@ -42,49 +42,132 @@
 
 ## 快速开始
 
-### 1. 安装仓库
+本节只列当前使用的 ELF3 V3.1 和 V4 任务。所有命令在仓库根目录运行；
+Git 仓库不包含训练权重或 SwanLab 凭据。
+
+### 1. 创建独立环境并安装
 
 ```bash
-conda activate mjlab
-cd AMP_mjlab
-python -m pip install -e .
-cd rsl_rl
-python -m pip install -e .
+git clone https://github.com/JKYovo/Amp_mjlab.git
+cd Amp_mjlab
+conda create --prefix ./.venv python=3.11.16 pip -y
+.venv/bin/python -m pip install -r requirements-elf3.txt
+.venv/bin/python -m pip install --no-deps -e ./rsl_rl
+.venv/bin/python -m pip install --no-deps -e .
 ```
 
-### 2. 应用 mjlab 补丁（可选）
+必须使用仓库内的 AMP `rsl_rl` fork，覆盖上游包。已验证的本机版本、
+CUDA 安装注意事项见[环境复现文档](docs/ELF3_DEPLOYMENT_ZH.md)。
 
-如果不打这个补丁，则需要在代码中去掉 `history_ordering` 配置。
-
-补丁作用说明：
-
-- 增加了历史观测的展开方式选项，可选择按时间维(`time`)或按观测项(`term`)展开。
-- mjlab 默认仅支持按 `term` 展开。
-
-补丁文件：
-
-- `mjlab_patch/mjlab/managers/observation_manager.py`
-
-示例覆盖命令：
+### 2. 应用必需的历史观测补丁
 
 ```bash
+MJLAB_DIR="$(.venv/bin/python -c 'import pathlib, mjlab; print(pathlib.Path(mjlab.__file__).parent)')"
 cp mjlab_patch/mjlab/managers/observation_manager.py \
-	/home/crp/miniconda3/envs/mjlab/lib/python3.11/site-packages/mjlab/managers/observation_manager.py
+  "$MJLAB_DIR/managers/observation_manager.py"
+.venv/bin/python scripts/list_envs.py --keyword ELF3
 ```
 
-### 3. 查看可用任务
+部署接口为单帧 96 维、按时间排列的 4 帧历史（384 维输入）、29 维动作。
+不能通过删除 `history_ordering` 来跳过补丁，否则不再保持相同的部署接口。
+
+### 3. 选择训练任务
+
+| 任务名 | 地形与训练内容 | AMP 数据集 | 默认最终检查点 |
+| --- | --- | --- | --- |
+| `BXI-ELF3-AMP-Flat-V3-1` | 平地；走跑 + 倒地起身 | `src/assets/motions/elf3/amp_v3_1` | `model_100000.pt` |
+| `BXI-ELF3-AMP-Rough-V4` | GRAVEL 崎岖地形；走路 + 倒地起身 | `src/assets/motions/elf3/amp_v4` | `model_200000.pt` |
+| `BXI-ELF3-AMP-Rough-V4-Loco` | GRAVEL 崎岖地形；走路，不训练起身 | `src/assets/motions/elf3/amp_v4/WalkandRun` | `model_200000.pt` |
+
+带起身的两个任务均有 40% 恢复环境，倒地后最长保留 5 秒恢复窗口；
+运动和起身在同一次训练中联合学习，不要求先后训练两个阶段。
+V4-Loco 不加载 AMP 起身参考、不从起身动作重置，倒地立即终止；
+其余 V4 物理容量配置保留。目前没有独立注册的 V3.1-Loco 或平地 V4 任务。
+两个 V4 任务均不输入 `terrain_scan`，地形和起步专项细节见 [V4 文档](docs/ELF3_V4_ZH.md)。
+
+### 4. 从头训练
+
+以下命令按需要选择一个运行，不要同时启动三个训练：
 
 ```bash
-python scripts/list_envs.py --keyword AMP
+# V3.1：平地走跑与起身联合训练
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 \
+  --env.scene.num-envs 4096 --agent.resume False \
+  --target-iteration 100001 --enable-nan-guard True
+
+# V4：崎岖地形走路与起身联合训练
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
+  --env.scene.num-envs 4096 --agent.resume False \
+  --target-iteration 200001 --enable-nan-guard True
+
+# V4：崎岖地形走路，不训练起身
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco \
+  --env.scene.num-envs 4096 --agent.resume False \
+  --target-iteration 200001 --enable-nan-guard True
 ```
 
-主要任务：
+轮次从 0 计数，所以目标 100001 / 200001 对应最终保存 100000 / 200000 轮。
+每 100 轮保存一次模型，默认日志目录分别为：
 
-- `Unitree-G1-AMP-Rough`
-- `Unitree-G1-AMP-Flat`
-- `BXI-ELF3-AMP-Rough`
-- `BXI-ELF3-AMP-Flat`
-- `BXI-ELF3-AMP-Flat-Loco`（只用走跑数据的第一阶段预训练）
+- V3.1：`logs/rsl_rl/elf3_amp_locomotion_v3_1/<RUN_DIR>/`
+- V4 带起身：`logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>/`
+- V4 不带起身：`logs/rsl_rl/elf3_amp_locomotion_v4_loco/<RUN_DIR>/`
+
+本机 RTX 4090 实测 4096 环境的 V4 正式训练约占 20 GiB 显存。
+显存不足可降低环境数；不带起身不意味着物理预分配缓冲自动大幅缩小。
+
+### 5. Play 与 ONNX 导出
+
+将 `<RUN_DIR>`、`<ITER>` 替换成实际目录和已保存轮次，play 任务与训练任务一致。
+训练正运行到的轮次不一定已保存为文件。
+
+```bash
+.venv/bin/python scripts/play.py BXI-ELF3-AMP-Flat-V3-1 \
+  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v3_1/<RUN_DIR>/model_<ITER>.pt" \
+  --num-envs 20 --export-onnx False
+
+.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4 \
+  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>/model_<ITER>.pt" \
+  --num-envs 20 --export-onnx False
+
+.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4-Loco \
+  --checkpoint-file "logs/rsl_rl/elf3_amp_locomotion_v4_loco/<RUN_DIR>/model_<ITER>.pt" \
+  --num-envs 20 --export-onnx False
+```
+
+需要导出时改为 `--export-onnx True`（默认值）。Play 导出路径为
+`<RUN_DIR>/export/<TASK_ID>_model_<ITER>.onnx`，模型已包含观测 normalizer，
+部署端不要再次归一化输入。关闭导出的参数是 `--export-onnx False`，
+不是 `--no-export-onnx`。带起身任务的 play 保留 40% 恢复环境；
+V4 play 默认关闭自动起步专项，保持普通/手动指令。
+看完用 `Ctrl+C` 退出，避免多个 GPU play 进程挤占训练显存。
+
+### 6. 续训与 SwanLab
+
+从同一个 V4 带起身实验续训，保留优化器、normalizer 和已保存的课程计数。
+`<RUN_DIR>` 在 `--agent.load-run` 中仅填目录名，不填完整路径：
+
+```bash
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
+  --env.scene.num-envs 4096 --agent.resume True \
+  --agent.load-run '<RUN_DIR>' --agent.load-checkpoint 'model_<ITER>.pt' \
+  --log-dir "logs/rsl_rl/elf3_amp_locomotion_v4/<RUN_DIR>" \
+  --resume-optimizer True --target-iteration 200001 --enable-nan-guard True
+```
+
+V3.1 / V4-Loco 续训时换成上表对应任务和日志目录；V3.1 的目标为
+`--target-iteration 100001`。目标是训练结束的总轮次，不是额外训练轮次。
+跨任务微调还需用 `--agent.experiment-name` 指定源实验目录，不能只替换任务名。
+
+```bash
+# 每台机器单独登录，不要把 API key 写入仓库。
+.venv/bin/swanlab login
+```
+
+新建实验时在训练命令后追加 `--swanlab-project locomotion
+--swanlab-experiment-name YOUR_EXPERIMENT --swanlab-resume never`；接回已有实验时追加
+`--swanlab-project locomotion --swanlab-id YOUR_RUN_ID --swanlab-resume must`。
+如果回退到了已上传曲线之前的检查点，应该新建 SwanLab 实验，避免较小 step 被拒收。
 
 ## 训练
 
