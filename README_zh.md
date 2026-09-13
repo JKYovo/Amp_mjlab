@@ -80,11 +80,9 @@ python scripts/list_envs.py --keyword AMP
 
 主要任务：
 
-- `Unitree-G1-AMP-Rough`
-- `Unitree-G1-AMP-Flat`
-- `BXI-ELF3-AMP-Rough`
-- `BXI-ELF3-AMP-Flat`
-- `BXI-ELF3-AMP-Flat-Loco`（只用走跑数据的第一阶段预训练）
+- `BXI-ELF3-AMP-Flat-V3-1`（使用修正后的 V3.1 数据集，从头联合训练平地走跑与起身）
+- `BXI-ELF3-AMP-Rough-V4`（从头联合训练 GRAVEL 盲走与起身，不含跑步参考；[V4 文档](docs/ELF3_V4_ZH.md)）
+- `BXI-ELF3-AMP-Rough-V4-Loco`（相同 V4 地形与指令，不使用起身重置或 AMP 起身参考）
 
 ## 训练
 
@@ -97,16 +95,18 @@ ELF3 平地与粗糙地形训练：
 
 ```bash
 source .venv/bin/activate
-python scripts/train.py BXI-ELF3-AMP-Flat-Loco --env.scene.num-envs=4096
-python scripts/train.py BXI-ELF3-AMP-Flat --env.scene.num-envs=4096
-python scripts/train.py BXI-ELF3-AMP-Rough --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
 ```
 
 
 日志默认在：
 
 - `logs/rsl_rl/g1_amp_locomotion/<time_stamp_run>/`
-- `logs/rsl_rl/elf3_amp_locomotion/<time_stamp_run>/`
+- V3.1：`logs/rsl_rl/elf3_amp_locomotion_v3_1/<time_stamp_run>/`
+- V4：`logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
+- V4-Loco：`logs/rsl_rl/elf3_amp_locomotion_v4_loco/<time_stamp_run>/`
 
 ## ELF3 适配说明
 

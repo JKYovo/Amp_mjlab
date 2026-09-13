@@ -78,11 +78,6 @@ python scripts/list_envs.py --keyword AMP
 
 Main tasks:
 
-- `Unitree-G1-AMP-Rough`
-- `Unitree-G1-AMP-Flat`
-- `BXI-ELF3-AMP-Rough`
-- `BXI-ELF3-AMP-Flat`
-- `BXI-ELF3-AMP-Flat-Loco` (stage-one walk/run-only pretraining)
 - `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
 - `BXI-ELF3-AMP-Rough-V4` (fresh blind GRAVEL walking, no running references; [V4 guide](docs/ELF3_V4_ZH.md))
 - `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
@@ -97,16 +92,17 @@ ELF3:
 
 ```bash
 source .venv/bin/activate
-python scripts/train.py BXI-ELF3-AMP-Flat-Loco --env.scene.num-envs=4096
-python scripts/train.py BXI-ELF3-AMP-Flat --env.scene.num-envs=4096
 python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
-python scripts/train.py BXI-ELF3-AMP-Rough --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
 ```
 
 Logs are saved by default to:
 
 - `logs/rsl_rl/g1_amp_locomotion/<time_stamp_run>/`
-- `logs/rsl_rl/elf3_amp_locomotion/<time_stamp_run>/`
+- V3.1: `logs/rsl_rl/elf3_amp_locomotion_v3_1/<time_stamp_run>/`
+- V4: `logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
+- V4-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_loco/<time_stamp_run>/`
 
 ## ELF3 Notes
 
