@@ -14,6 +14,17 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 from src.assets.robots.elf3.elf3_constants import ELF3_POLICY_ROOT, ELF3_PHYSICAL_ROOT
 from src.tasks.amp_loco.mdp.rough_height import root_clearance
+from src.tasks.amp_loco.mdp.tienkung_terrain import TienKungGravelTerrainCfg
+
+
+def expected_heightfield_count(terrain):
+    """Account for old GRAVEL's narrow strips, not just its tile count."""
+    sub = terrain.sub_terrains['random_rough']
+    fields_per_tile = 1
+    if isinstance(sub, TienKungGravelTerrainCfg):
+        cells = int(terrain.size[1] / sub.horizontal_scale)
+        fields_per_tile = (cells + sub.strip_cells - 1) // sub.strip_cells
+    return terrain.num_rows * terrain.num_cols * fields_per_tile
 
 
 def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
@@ -117,7 +128,8 @@ def check(num_envs=16, steps=120, nconmax=None, njmax=None, ccd_iterations=None,
         assert torch.all(delta.std(dim=0) > .001), 'COM randomization not varying per world'
         terrain = cfg.scene.terrain.terrain_generator
         tiles = terrain.num_rows * terrain.num_cols
-        assert model.nhfield == tiles, (model.nhfield, tiles)
+        expected_fields = expected_heightfield_count(terrain)
+        assert model.nhfield == expected_fields, (model.nhfield, expected_fields)
         # Probe hits must be terrain, not robot geometry.
         sensor = env.scene['terrain_height']
         assert torch.all((sensor.data.distances >= 0).any(dim=-1))

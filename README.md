@@ -79,10 +79,12 @@ python scripts/list_envs.py --keyword AMP
 Main tasks:
 
 - `BXI-ELF3-AMP-Flat-V3-1` (fresh V3.1 training with corrected support motions)
-- `BXI-ELF3-AMP-Rough-V4` (V4 with fall recovery: joint blind walking on mjlab's native random rough terrain + get-up training; no running references; [V4 guide](docs/ELF3_V4_ZH.md))
+- `BXI-ELF3-AMP-Rough-V4` (V4 with fall recovery on the old TienKung GRAVEL terrain, no running references; [V4 guide](docs/ELF3_V4_ZH.md))
 - `BXI-ELF3-AMP-Rough-V4-Loco` (same V4 terrain/commands, no recovery reset or AMP recovery reference)
-- `BXI-ELF3-AMP-Flat-V4` (V4 with fall recovery, using V3.1's flat plane)
-- `BXI-ELF3-AMP-Flat-V4-Loco` (flat V4 without fall recovery)
+- `BXI-ELF3-AMP-Rough-V4-Delay` (V4 with fall recovery and 0–40 ms position-target delay; [delay guide](docs/ELF3_V4_DELAY_ZH.md))
+
+All V4 tasks use the old GRAVEL terrain without `terrain_scan`. V4 flat tasks
+have been retired; V3.1 remains flat. The non-Delay tasks remain delay-free baselines.
 
 ## Training
 
@@ -96,23 +98,41 @@ ELF3:
 source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
 # V4 rough with fall recovery
-python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096 --enable-nan-guard True
 # V4 rough without fall recovery
-python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096
-# V4 flat with fall recovery
-python scripts/train.py BXI-ELF3-AMP-Flat-V4 --env.scene.num-envs=4096
-# V4 flat without fall recovery
-python scripts/train.py BXI-ELF3-AMP-Flat-V4-Loco --env.scene.num-envs=4096
+python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096 --enable-nan-guard True
+# V4 rough with fall recovery and action delay
+python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay --env.scene.num-envs=4096 --enable-nan-guard True
 ```
+
+These commands start fresh (`resume=False`, initial LR `1e-3`). V4 targets
+`model_200000.pt`. Delay is sampled at reset, shared by all 29 joints and held
+for the episode: 0–8 physics steps × 5 ms. Observations, PD feedback and the
+384-input/29-output deployment interface are unchanged.
+
+Resume a V4 checkpoint with delay (run name is a directory under the V4 log root):
+
+```bash
+python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay \
+  --env.scene.num-envs 4096 \
+  --agent.resume True --agent.load-run <run_dir> \
+  --agent.load-checkpoint 'model_<iter>.pt' \
+  --resume-optimizer True --target-iteration 200001 \
+  --enable-nan-guard True \
+  --swanlab-project locomotion --swanlab-experiment-name v4_delay_resume
+```
+
+This restores the model, normalization, optimizer and curriculum clock. The
+target is the final iteration, not an additional 200000 iterations. For an
+existing SwanLab run, use `--swanlab-id <id> --swanlab-resume must`; use a new
+experiment when branching from an older checkpoint.
 
 Logs are saved by default to:
 
 - `logs/rsl_rl/g1_amp_locomotion/<time_stamp_run>/`
 - V3.1: `logs/rsl_rl/elf3_amp_locomotion_v3_1/<time_stamp_run>/`
-- V4: `logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
+- V4 / V4-Delay: `logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
 - V4-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_loco/<time_stamp_run>/`
-- V4-Flat: `logs/rsl_rl/elf3_amp_locomotion_v4_flat/<time_stamp_run>/`
-- V4-Flat-Loco: `logs/rsl_rl/elf3_amp_locomotion_v4_flat_loco/<time_stamp_run>/`
 
 ## ELF3 Notes
 
@@ -121,15 +141,12 @@ Logs are saved by default to:
 - ELF3's physical floating root is `torso_link`; its G1-pelvis-equivalent semantic body is `waist_z_link`. Reset/root state uses the former, while the AMP policy body scheme uses the latter.
 - The 17 walk/run clips are converted directly from native HoloMotion ELF3 references, with body FK and velocities recomputed using the canonical MuJoCo model.
 - The bundled recovery clip is a provisional semantic conversion from G1 with ELF3 mesh ground alignment and joint-limit clipping. Replace it with native ELF3 get-up data before production training.
-- ELF3 keeps the G1 reward terms, weights, tracking widths, and collision thresholds unchanged. Only robot body/site/geom mappings are replaced; the fall-height termination is adjusted for ELF3's higher physical root.
-- The final policy is trained jointly on locomotion and recovery. For a new robot, use `BXI-ELF3-AMP-Flat-Loco` to stabilize flat-ground locomotion, then add native recovery data and ramp the delayed-recovery environment ratio from 0.1 to 0.4, and finally fine-tune on rough terrain.
+- The base ELF3 configuration preserves G1 rewards while replacing body/site/geom mappings and the fall-height threshold. V4 additionally uses its walking tracking, foot-safety and startup terms; adding Delay changes none of those rewards.
+- Recovery tasks use 40% delayed-fall/recovery environments. This recovery window is separate from the position-target latency in the Delay task.
 
 The ELF3-specific reward and root settings are in `src/tasks/amp_loco/config/elf3/env_cfgs.py`.
 The isolated V3.1 motion set is in `src/assets/motions/elf3/amp_v3_1`; rebuild it
 from immutable V3 data with `scripts/build_elf3_amp_v3_1_dataset.py`.
-
-Resume the joint task from the stage-one checkpoint with `--agent.resume True`,
-`--agent.load-run <loco_run_dir>`, and `--agent.load-checkpoint 'model_<iter>.pt'`.
 
 ## Training Curve Note (Important)
 
@@ -148,6 +165,25 @@ python scripts/play.py Unitree-G1-AMP-Rough \
 ```
 
 Note: ONNX export is enabled by default in both training and play workflows.
+
+ELF3 (choose the task matching the model):
+
+```bash
+python scripts/play.py BXI-ELF3-AMP-Flat-V3-1 \
+  --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v3_1/<run_dir>/model_<iter>.pt \
+  --num-envs 20 --export-onnx True
+python scripts/play.py BXI-ELF3-AMP-Rough-V4-Delay \
+  --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v4/<run_dir>/model_<iter>.pt \
+  --num-envs 20 --export-onnx True
+python scripts/play.py BXI-ELF3-AMP-Rough-V4-Loco \
+  --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v4_loco/<run_dir>/model_<iter>.pt \
+  --num-envs 20 --export-onnx True
+```
+
+Delay playback also simulates 0–40 ms latency. To test the same checkpoint with
+zero added latency, use `BXI-ELF3-AMP-Rough-V4` instead. ONNX contains no delay
+buffer: do not add artificial delay on the real robot. Use `--num-envs 1` when
+training is already occupying the GPU.
 
 ## Motion Data Preparation
 

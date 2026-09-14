@@ -141,19 +141,3 @@ def elf3_amp_v4_loco_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg.run_name = 'v4_rough_walk_no_recovery_fresh'
   cfg.amp_motion_files = os.path.join(cfg.amp_motion_files, 'WalkandRun')
   return cfg
-
-
-def elf3_amp_flat_v4_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
-  """Fresh flat V4 with recovery; keep rough V4 training settings."""
-  cfg = elf3_amp_v4_ppo_runner_cfg()
-  cfg.experiment_name = 'elf3_amp_locomotion_v4_flat'
-  cfg.run_name = 'v4_flat_walk_recovery_fresh'
-  return cfg
-
-
-def elf3_amp_flat_v4_loco_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
-  """Fresh flat V4 without recovery, including in the AMP expert."""
-  cfg = elf3_amp_v4_loco_ppo_runner_cfg()
-  cfg.experiment_name = 'elf3_amp_locomotion_v4_flat_loco'
-  cfg.run_name = 'v4_flat_walk_no_recovery_fresh'
-  return cfg

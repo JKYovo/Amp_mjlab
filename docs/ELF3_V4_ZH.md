@@ -1,32 +1,44 @@
-# ELF3 V4：mjlab 原生随机起伏地形盲走 + walking-only AMP
+# ELF3 V4：恢复旧 GRAVEL 地形盲走 + walking-only AMP
 
 任务：`BXI-ELF3-AMP-Rough-V4`。默认从头训练，`resume=False`，初始学习率
 `1e-3`、自适应调度，目标保存至 `model_200000.pt`。没有写入本机 V3.1
 续训路径，也不会自动停止或替换正在运行的任务。
 
-## V4 四种任务
+2026-09-14：标准 Rough-V4 / Rough-V4-Loco 恢复旧实验
+`2026-09-12_17-22-39_v4_startup_recovery_fresh` 的 GRAVEL 地形。
+带起身任务的其余训练配置保持旧实验设置，包括修复后的起步判定；
+不修改观测归一化/ONNX 导出实现。旧实验保存的 `resume=True` 是后来
+续训留下的状态，重新训练仍使用 `resume=False`，不加载旧模型。
+
+## V4 三种任务
 
 | 任务 | 地形 | 起身 reset / AMP 起身参考 | 日志根目录（`logs/rsl_rl/` 下） |
 | --- | --- | --- | --- |
-| `BXI-ELF3-AMP-Rough-V4` | 原生随机起伏 | 有 / 有 | `elf3_amp_locomotion_v4` |
-| `BXI-ELF3-AMP-Rough-V4-Loco` | 原生随机起伏 | 无 / 无 | `elf3_amp_locomotion_v4_loco` |
-| `BXI-ELF3-AMP-Flat-V4` | V3.1 同款原生平面 | 有 / 有 | `elf3_amp_locomotion_v4_flat` |
-| `BXI-ELF3-AMP-Flat-V4-Loco` | V3.1 同款原生平面 | 无 / 无 | `elf3_amp_locomotion_v4_flat_loco` |
+| `BXI-ELF3-AMP-Rough-V4` | 旧 GRAVEL 条带地形 | 有 / 有 | `elf3_amp_locomotion_v4` |
+| `BXI-ELF3-AMP-Rough-V4-Loco` | 旧 GRAVEL 条带地形 | 无 / 无 | `elf3_amp_locomotion_v4_loco` |
+| `BXI-ELF3-AMP-Rough-V4-Delay` | 旧 GRAVEL 条带地形 | 有 / 有；另加0～40 ms动作延迟 | `elf3_amp_locomotion_v4` |
 
-四个任务均默认从头训练（`resume=False`、初始 LR `1e-3`），目标保存到
-`model_200000.pt`。Flat 只替换为 V3.1 的 plane 地形并移除 rough 专用
-出生位置/外边界逻辑；保留 V4 的指令、奖励、COM 随机化、数据和起步专项。
-仿真内部高度探针在 plane 上测得地面 Z=0，不进入部署观测。
+三个任务均默认从头训练（`resume=False`、初始 LR `1e-3`），目标保存到
+`model_200000.pt`。V4 平地入口已取消，包括临时的 V3.1 碰撞对照任务；
+历史模型和日志没有删除，V3.1 平地任务保持可用。
+Delay 仅在 reset 时采样0～8个5 ms物理步的位置目标延迟，29关节共用、
+本回合固定，不修改观测、PD、奖励或归一化实现。详见[延迟训练文档](ELF3_V4_DELAY_ZH.md)。
 
 ```bash
-# 选择一个任务训练，不要同时启动四个 4096 环境任务。
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Flat-V4 --env.scene.num-envs 4096
-.venv/bin/python scripts/train.py BXI-ELF3-AMP-Flat-V4-Loco --env.scene.num-envs 4096
+# 选择一个任务训练，不要同时启动多个 4096 环境任务。
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
+  --env.scene.num-envs 4096 --agent.resume False \
+  --agent.seed 42 --enable-nan-guard True \
+  --agent.run-name v4_old_gravel_repro_fresh \
+  --swanlab-project locomotion \
+  --swanlab-experiment-name elf3_v4_old_gravel_repro_fresh
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs 4096
+.venv/bin/python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay --env.scene.num-envs 4096
 
 # Play 的任务名应与模型训练任务一致。
-.venv/bin/python scripts/play.py BXI-ELF3-AMP-Flat-V4 \
+.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4-Delay \
   --checkpoint-file <模型路径> --num-envs 20 --export-onnx False
-.venv/bin/python scripts/play.py BXI-ELF3-AMP-Flat-V4-Loco \
+.venv/bin/python scripts/play.py BXI-ELF3-AMP-Rough-V4-Loco \
   --checkpoint-file <模型路径> --num-envs 20 --export-onnx False
 ```
 
@@ -47,40 +59,41 @@
 
 ## 地形来源与引擎适配
 
-当前 V4 与 V4-Loco 使用 mjlab 自带的 `HfRandomUniformTerrainCfg`，
-配置入口为 `mdp/terrain.py::elf3_v4_rough_terrain_cfg`。
-它与用户确认的地形预览使用相同参数，不再使用自定义 GRAVEL 条带拼接。
+当前 Rough V4 与 V4-Loco 使用旧实验的 `TienKungGravelTerrainCfg`，
+配置入口为 `mdp/tienkung_terrain.py::tienkung_gravel_cfg`。
+这是 TienKung-Lab ELF3 GRAVEL 的 MuJoCo 高度场适配，不是直接使用 PhysX 地形。
 
 | 参数 | V4 |
 | --- | --- |
 | 地块大小 / 训练网格 | 8×8 m / 10×20 地块 |
 | 外边界 | 20 m |
-| 高度采样范围 / 间隔 | 0～6 cm / 2 cm |
-| 水平 / 竖直离散精度 | 0.2 m / 0.005 m |
-| 随机采样点间距（downsampled_scale） | 0.2 m |
+| 高度采样范围 / 间隔 | −2～4 cm / 2 cm |
+| 水平 / 竖直离散精度 | 0.1 m / 0.005 m |
+| 每条带宽度 | 2 个水平栅格，20 cm |
 | 地块内边界参数 | 0.25 m |
 | curriculum | False |
-| 子地形权重 | 1.0，100% 随机起伏，无平地混入 |
+| 子地形权重 | 0.2（唯一子地形，归一化后 100% GRAVEL） |
 
-每个 8×8 m 地块为一个 40×40 高度场，训练共 200 个高度场，
-Play 为 5×5 地块、25 个高度场。与旧 GRAVEL 相比，保留约 6 cm 峰谷差，
-但不再保留 −2 cm 基准，且水平栅格从 10 cm 调整为 20 cm；随机布局不相同。
-更粗的栅格用于减少倒地时单个 geom-heightfield 配对的三角候选，
-不能据此保证任何姿态都不会触发引擎接触上限。
+每个 8×8 m 地块为 81×81 端点包含栅格，沿 X 分为 40 个共享边界
+顶点的高度场条带；训练 200 个地块、8000 个高度场，Play 为 25 个
+地块、1000 个高度场。条带用来减少单个 geom-heightfield 配对的三角候选，
+不修改高度、水平精度或机器人碰撞资产。恢复配置不保证随机布局与旧 run 完全相同。
 
 旧条带地形的 CPU 转向诊断曾返回约 −106 mm 的异常接触距离，
 而相同姿态标准 MuJoCo 的接触距离约为 −8 mm。旧实现仍保留在
-`tienkung_terrain.py` 供历史回溯，但当前 V4 不引用它。
-改用自带地形仍走 MuJoCo-Warp 高度场碰撞，不能等同于消除所有碰撞或 NaN 风险。
+`tienkung_terrain.py`，当前 Rough V4 已重新引用它。
+原生随机地形工厂仍保留在 `terrain.py` 供对照，但不是当前 Rough V4 的默认地形。
+回退地形不能等同于消除碰撞异常、NaN 或本机长期死机风险。
 
 保留 CCD 50、接触容量每环境 128（跨环境共享池）、约束容量每环境 768、
 接触传感器匹配容量 1024，以及出生位置远离外边界的保护。
 独立检查脚本 `scripts/check_elf3_v4.py` 支持 `--device cpu` 或 `cuda:0`，
 逐物理子步验证原始物理状态、接触容量及有限性；接触距离不是实测穿模深度。
-旧条带地形的 4096 环境显存/容量实测不作为新地形的验证结果。
 正式训练仍默认 4096 环境，不会自动停止或热更新已有训练。
 
 ### 原生地形替换后的验证（2026-09-13）
+
+本节为回退前的历史验证，不代表当前恢复的 GRAVEL 已重新完成动力学压力测试。
 
 29 项 CPU 回归测试通过；对比替换前配置，V4/V4-Loco 的 train/play
 都只有 `scene.terrain` 改变，奖励、指令、观测、随机化和 PPO 设置不变。
@@ -287,7 +300,7 @@ AMP 各段期望采样概率变为 1/16：保留动作的相对占比会上升�
   独立保存到 `logs/rsl_rl/elf3_amp_locomotion_v4_loco/`。未写入本机续训参数。
 
 **显存说明：**不带起身并不等于少运行 40% 的机器人，仍然是 4096 个并行环境。
-当前版本保留 CCD 50、接触容量 128、约束容量 768，以及相同原生地形。
+当前版本保留 CCD 50、接触容量 128、约束容量 768，以及相同旧 GRAVEL 地形。
 这些预分配数组、PPO rollout 和网络不会因实际倒地接触减少而自动缩小。
 直接省下的主要是起身动作张量及采样缓存（MiB 量级），不能据此宣称省下数 GiB。
 无起身可能允许进一步缩减碰撞容量/分块开销，但必须独立做跌倒压力测试；
