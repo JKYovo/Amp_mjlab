@@ -80,13 +80,11 @@ python scripts/list_envs.py --keyword AMP
 
 主要任务：
 
-- `BXI-ELF3-AMP-Flat-V3-1`（使用修正后的 V3.1 数据集，从头联合训练平地走跑与起身）
-- `BXI-ELF3-AMP-Rough-V4`（V4 带起身：老天工 GRAVEL 地形盲走与倒地起身，不含跑步参考；[V4 文档](docs/ELF3_V4_ZH.md)）
-- `BXI-ELF3-AMP-Rough-V4-Loco`（相同 V4 地形与指令，不使用起身重置或 AMP 起身参考）
-- `BXI-ELF3-AMP-Rough-V4-Delay`（V4 带起身＋0～40 ms 位置目标延迟；[延迟训练文档](docs/ELF3_V4_DELAY_ZH.md)）
+- `BXI-ELF3-AMP-Rough-V4`（推荐的 ELF3 训练任务）
 
-所有 V4 任务统一使用老 GRAVEL 地形，不输入 `terrain_scan`。V4 平地任务已取消，
-V3.1 仍保留平地。不带 `Delay` 的任务保持无新增动作延迟，供对照使用。
+推荐 V4 使用天工 GRAVEL 地形，不输入 `terrain_scan`；仅加载
+`amp_v4/WalkandRun` 步行动作（不含跑步），不使用起身重置和 AMP 起身数据，
+并加入 0～40 ms 位置目标延迟。
 
 ## 训练
 
@@ -95,27 +93,21 @@ V3.1 仍保留平地。不带 `Delay` 的任务保持无新增动作延迟，供
 python scripts/train.py Unitree-G1-AMP-Flat --env.scene.num-envs=4096
 ```
 
-ELF3 平地与粗糙地形训练：
+ELF3 V4 训练：
 
 ```bash
 source .venv/bin/activate
-python scripts/train.py BXI-ELF3-AMP-Flat-V3-1 --env.scene.num-envs=4096
-# V4 rough 带起身
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096 --enable-nan-guard True
-# V4 rough 不带起身
-python scripts/train.py BXI-ELF3-AMP-Rough-V4-Loco --env.scene.num-envs=4096 --enable-nan-guard True
-# V4 rough 带起身＋动作延迟
-python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay --env.scene.num-envs=4096 --enable-nan-guard True
 ```
 
-以上命令均从头训练（`resume=False`，初始学习率 `1e-3`），V4 目标保存到
+该命令从头训练（`resume=False`，初始学习率 `1e-3`），目标保存到
 `model_200000.pt`。动作延迟在 reset 时采样，29 个关节共用，本回合固定：
 0～8 个物理步 × 5 ms。不改观测、PD 内环反馈或 384 输入／29 输出部署接口。
 
-从已有 V4 检查点续训带延迟版本（`run_dir` 是 V4 日志根目录下的实验目录名）：
+从已有 V4 检查点续训（`run_dir` 是 V4 日志根目录下的实验目录名）：
 
 ```bash
-python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay \
+python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
   --env.scene.num-envs 4096 \
   --agent.resume True --agent.load-run <run_dir> \
   --agent.load-checkpoint 'model_<iter>.pt' \
@@ -132,28 +124,15 @@ python scripts/train.py BXI-ELF3-AMP-Rough-V4-Delay \
 日志默认在：
 
 - `logs/rsl_rl/g1_amp_locomotion/<time_stamp_run>/`
-- V3.1：`logs/rsl_rl/elf3_amp_locomotion_v3_1/<time_stamp_run>/`
-- V4 / V4-Delay：`logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
-- V4-Loco：`logs/rsl_rl/elf3_amp_locomotion_v4_loco/<time_stamp_run>/`
+- ELF3 V4：`logs/rsl_rl/elf3_amp_locomotion_v4/<time_stamp_run>/`
 
 ## ELF3 适配说明
 
 - 机器人模型来自 HoloMotion 的 `assets/robots/elf3/29dof/sim2sim/elf3.xml`，质量、关节限位、执行器增益、转子惯量和原生动作尺度均按该模型配置。
 - BXI 控制器/MuJoCo 的 29 关节顺序是“腰、左腿、右腿、左臂、右臂”，Isaac 顺序则交错排列。训练 action、AMP 文件和导出的 ONNX metadata 使用前一种顺序；HoloMotion 转换、AMP reset/判别器加载和动作预览均按关节名重排，不按输入列号猜测顺序。
 - ELF3 的物理浮动根是 `torso_link`；与 G1 pelvis 对应的策略语义根是 `waist_z_link`。仿真 reset、根状态和终止判断使用前者，AMP 身体结构语义使用后者，不能互换。
-- `src/assets/motions/elf3/amp/WalkandRun` 中的 17 段参考动作直接由 HoloMotion ELF3 数据转换，并用 ELF3 MuJoCo 模型重新计算全身 FK 和速度。
-- `src/assets/motions/elf3/amp/Recovery` 中的起身动作目前由 G1 数据按关节语义临时映射，并做了 ELF3 网格贴地和关节限位裁剪。它可以用于链路验证和初始实验，但正式训练最好替换为 ELF3 原生起身数据。
-- ELF3 基础配置保持 G1 奖励，替换 body/site/geom 映射和倒地高度阈值；V4 另有步行跟踪、脚部安全和起步奖励。增加 Delay 不修改这些奖励。参数入口位于 `src/tasks/amp_loco/config/elf3/env_cfgs.py`。
-
-带起身任务联合训练运动和恢复，40% 环境使用倒地后的延迟终止／恢复窗口。
-这个恢复窗口与 Delay 任务的“动作位置目标延迟”是两回事，不能混为一谈。
-
-## 训练曲线说明（重要）
-
-- 在约 `2w` 轮（约 20k iterations）附近，策略通常会突然学会“跌倒后恢复”行为。
-- 对应地，`logs` 中多个指标会出现明显突变（阶跃式变化），这是正常现象，不一定是训练异常。
-
-![训练日志突变示例](logs.png)
+- V4 使用 15 段步行、转向、侧移和静止参考动作；跑步与起身动作不会进入 AMP 专家采样或动作重置。
+- ELF3 基础配置保留映射后的奖励结构和倒地高度阈值；V4 另有步行跟踪、脚部安全和起步奖励。动作延迟不修改奖励。参数入口位于 `src/tasks/amp_loco/config/elf3/env_cfgs.py`。
 
 ## 评估与可视化
 
@@ -166,22 +145,15 @@ python scripts/play.py Unitree-G1-AMP-Rough \
 
 说明：训练与回放阶段都支持 ONNX 导出（默认开启）。
 
-ELF3（按模型选择对应任务）：
+ELF3 V4：
 
 ```bash
-python scripts/play.py BXI-ELF3-AMP-Flat-V3-1 \
-  --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v3_1/<run_dir>/model_<iter>.pt \
-  --num-envs 20 --export-onnx True
-python scripts/play.py BXI-ELF3-AMP-Rough-V4-Delay \
+python scripts/play.py BXI-ELF3-AMP-Rough-V4 \
   --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v4/<run_dir>/model_<iter>.pt \
-  --num-envs 20 --export-onnx True
-python scripts/play.py BXI-ELF3-AMP-Rough-V4-Loco \
-  --checkpoint-file logs/rsl_rl/elf3_amp_locomotion_v4_loco/<run_dir>/model_<iter>.pt \
   --num-envs 20 --export-onnx True
 ```
 
-Delay 任务播放时也模拟 0～40 ms 延迟；同一检查点的零额外延迟对照，将任务名
-换成 `BXI-ELF3-AMP-Rough-V4` 即可。ONNX 不包含延迟缓冲，真机不要人为加延迟。
+播放时也会采样 0～40 ms 延迟。ONNX 不包含延迟缓冲，真机不要人为增加延迟。
 训练正在占用 GPU 时，建议先用 `--num-envs 1` 播放。
 
 ## 运动数据准备

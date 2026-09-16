@@ -141,3 +141,11 @@ def elf3_amp_v4_loco_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   cfg.run_name = 'v4_rough_walk_no_recovery_fresh'
   cfg.amp_motion_files = os.path.join(cfg.amp_motion_files, 'WalkandRun')
   return cfg
+
+
+def elf3_amp_v4_main_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
+  """Recommended V4 fresh run using only the walking AMP subset."""
+  cfg = elf3_amp_v4_loco_ppo_runner_cfg()
+  cfg.experiment_name = 'elf3_amp_locomotion_v4'
+  cfg.run_name = 'v4_gravel_walk_delay_fresh'
+  return cfg

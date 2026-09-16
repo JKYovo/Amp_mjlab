@@ -458,6 +458,20 @@ def elf3_amp_rough_v4_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
+def elf3_amp_rough_v4_main_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Recommended V4: TienKung GRAVEL, walking only, no recovery, 0--40 ms delay."""
+  cfg = elf3_amp_rough_v4_loco_env_cfg(play=play)
+  if not math.isclose(cfg.sim.mujoco.timestep, .005):
+    raise ValueError("V4 main task expects 5 ms physics steps")
+  base = cfg.actions['joint_pos']
+  cfg.actions['joint_pos'] = DelayedJointPositionActionCfg(
+    **{f.name: deepcopy(getattr(base, f.name)) for f in fields(base) if f.init},
+    delay_min_lag=0,
+    delay_max_lag=8,
+  )
+  return cfg
+
+
 def elf3_amp_flat_v3_1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the V3 task with corrected side-step and in-place-turn motions."""
   cfg = elf3_amp_flat_v3_env_cfg(play=play)
