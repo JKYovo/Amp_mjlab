@@ -1,5 +1,9 @@
 # V4 天工 GRAVEL + 起身：动作延迟对照
 
+历史对照，非推荐训练。当前推荐为 `BXI-ELF3-AMP-Rough-V4`：不带起身、
+无额外延迟、20 Hz 关节速度观测滤波。所有 ELF3 入口均使用已更新的 DWAQ 资产；
+下文旧检查点续训记录不表示旧资产或旧动力学仍被自动加载。
+
 任务：`BXI-ELF3-AMP-Rough-V4-Delay`。
 基线 `BXI-ELF3-AMP-Rough-V4` 和 V4-Loco 保持无新增动作延迟，
 所有 V4 任务使用老 GRAVEL 地形。V4 平地任务已取消，V3.1 保持不变。

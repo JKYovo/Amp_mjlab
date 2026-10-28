@@ -1,10 +1,12 @@
 """ELF3 29-DoF robot configuration for mjlab.
 
-The dynamics, controller gains, limits, and action scales are derived from the
-canonical HoloMotion ELF3 training asset.  The physical floating root is
+Geometry comes from the retained DWAQ MJCF. Actuator gains, effort limits and
+reflected inertias come from DWAQ a14f9d5's checked-in robot contract, not the
+older HoloMotion actuator recipe. The physical floating root is
 ``torso_link``; ``waist_z_link`` is the pelvis-semantic body used by policies.
 """
 
+import json
 from pathlib import Path
 
 import mujoco
@@ -19,6 +21,8 @@ from src import SRC_PATH
 
 ELF3_XML: Path = SRC_PATH / "assets" / "robots" / "elf3" / "xmls" / "elf3.xml"
 assert ELF3_XML.exists()
+ELF3_DWAQ_CONTRACT_PATH = ELF3_XML.parent.parent / "dwaq_contract.json"
+ELF3_DWAQ_CONTRACT = json.loads(ELF3_DWAQ_CONTRACT_PATH.read_text())
 
 ELF3_PHYSICAL_ROOT = "torso_link"
 ELF3_POLICY_ROOT = "waist_z_link"
@@ -73,6 +77,7 @@ ELF3_JOINT_NAMES = (
   "r_wrist_y_joint",
   "r_wrist_z_joint",
 )
+assert tuple(ELF3_DWAQ_CONTRACT["joint_names"]) == ELF3_JOINT_NAMES
 
 
 def _get_assets(meshdir: str) -> dict[str, bytes]:
@@ -84,7 +89,7 @@ def _get_assets(meshdir: str) -> dict[str, bytes]:
 def get_spec() -> mujoco.MjSpec:
   """Load the canonical model and remove standalone-scene components.
 
-  HoloMotion's sim2sim MJCF is self-contained and therefore includes a floor
+  The retained ELF3 sim2sim MJCF is self-contained and includes a floor
   and torque motors.  mjlab owns the terrain and creates position actuators
   from the articulation config, so both are removed before attachment.
   """
@@ -93,6 +98,15 @@ def get_spec() -> mujoco.MjSpec:
 
   for actuator in list(spec.actuators):
     spec.delete(actuator)
+  # Canonical MJCF already materializes DWAQ's elf3.py training overrides.
+  # Enforce that same contract for both joint bounds and recreated actuators;
+  # never fall back to the older standalone-template actuator recipe.
+  for name in ELF3_JOINT_NAMES:
+    joint = spec.joint(name)
+    limit = ELF3_DWAQ_CONTRACT["effort_limit"][name]
+    joint.actfrclimited = True
+    joint.actfrcrange = (-limit, limit)
+    joint.armature = ELF3_DWAQ_CONTRACT["armature"][name]
   floor = spec.geom("floor")
   if floor:
     spec.delete(floor)
@@ -156,32 +170,15 @@ def _actuator(
 
 
 def _actuator_params(joint_name: str) -> tuple[float, float, float, float]:
-  """Return Kp, Kd, effort limit, and armature for one native joint."""
-  if joint_name == "waist_y_joint":
-    return 108.448, 6.904, 100.0, 0.027470199309110616
-  if joint_name == "waist_x_joint":
-    return 162.672, 10.356, 100.0, 0.041205298963665926
-  if (
-    joint_name == "waist_z_joint"
-    or "_hip_y_joint" in joint_name
-    or "_hip_x_joint" in joint_name
-    or "_knee_y_joint" in joint_name
-  ):
-    return 176.421, 11.231, 150.0, 0.04468796134841218
-  if "_ankle_y_joint" in joint_name:
-    return 33.493, 2.132, 50.0, 0.008484129312291153
-  if "_ankle_x_joint" in joint_name:
-    return 21.771, 1.386, 20.0, 0.00551468405298925
-  if (
-    "_shoulder_y_joint" in joint_name
-    or "_shoulder_x_joint" in joint_name
-    or "_elbow_y_joint" in joint_name
-    or "_hip_z_joint" in joint_name
-  ):
-    return 54.224, 3.452, 50.0, 0.013735099654555308
-  if "_shoulder_z_joint" in joint_name or "_wrist_" in joint_name:
-    return 16.747, 1.066, 25.0, 0.0042420646561455765
-  raise KeyError(f"No ELF3 actuator parameters for {joint_name!r}")
+  """Return DWAQ Kp, Kd, effort limit, and armature for one native joint.
+
+  PhysX's 20 rad/s solver velocity cap has no direct BuiltinPositionActuator
+  equivalent. It is retained in the contract/provenance, not silently replaced
+  by a DC motor curve, action clamp or simulation-velocity overwrite.
+  """
+  return tuple(float(ELF3_DWAQ_CONTRACT[field][joint_name]) for field in (
+    "stiffness", "damping", "effort_limit", "armature"
+  ))
 
 
 # One config per joint preserves the MJCF joint order in the policy action

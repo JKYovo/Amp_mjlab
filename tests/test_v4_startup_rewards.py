@@ -1,5 +1,6 @@
 """CPU behavior tests for V4 tracking, geometric safety and startup sequencing."""
 import math
+from copy import deepcopy
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -328,7 +329,12 @@ class StartupTest(unittest.TestCase):
             cfg = load_env_cfg(task)
             self.assertEqual(cfg.commands['twist'].startup_fraction, .25)
             self.assertEqual(load_env_cfg(task, play=True).commands['twist'].startup_fraction, 0.)
-            self.assertEqual(cfg.observations, v3.observations)
+            expected_observations = deepcopy(v3.observations)
+            if task == 'BXI-ELF3-AMP-Rough-V4':
+                from src.tasks.amp_loco.mdp.velocity_feedback import joint_vel_feedback_rel
+                for group in ('actor', 'critic'):
+                    expected_observations[group].terms['joint_vel'].func = joint_vel_feedback_rel
+            self.assertEqual(cfg.observations, expected_observations)
             self.assertIs(cfg.events['reset_from_motion'].func, reset_with_startup_v4)
             self.assertIs(cfg.rewards['track_anchor_linear_velocity'].func, track_horizontal_velocity_v4)
             self.assertIs(cfg.rewards['track_anchor_angular_velocity'].func, track_yaw_velocity_v4)

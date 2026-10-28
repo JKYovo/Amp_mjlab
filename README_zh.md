@@ -84,7 +84,13 @@ python scripts/list_envs.py --keyword AMP
 
 推荐 V4 使用天工 GRAVEL 地形，不输入 `terrain_scan`；仅加载
 `amp_v4/WalkandRun` 步行动作（不含跑步），不使用起身重置和 AMP 起身数据，
-并加入 0～40 ms 位置目标延迟。
+无额外动作延迟；actor/critic 的关节速度观测使用 DWAQ 的 20 Hz Tustin 低通模型，
+每个 5 ms 物理步更新，PD 内环仍使用原始速度。
+
+2026-10-27：修正此前只核对 MJCF/网格而遗漏的 DWAQ 执行器覆盖参数：
+全部关节附加惯量为 `0.01`，力矩上限按 DWAQ 契约；恢复原版 AMP 奖励，
+不启用后续奖励工程/站姿修复。PhysX 的 20 rad/s 求解器限速没有内置 MuJoCo
+位置执行器直接等效项，未声称两引擎完全一致。详见 [V4 文档](docs/ELF3_V4_ZH.md)。
 
 ## 训练
 
@@ -100,9 +106,15 @@ source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096 --enable-nan-guard True
 ```
 
+以上入口已替代旧推荐任务：默认使用修复后的 DWAQ 资产与 20 Hz 滤波、原版
+AMP 奖励及隔离副本 ONNX 导出。资产 XML 本身也已更新，不依赖本机 DWAQ
+目录或运行时额外替换；旧的延迟训练不是默认配置。
+ELF3 依赖清单同步到本次实际使用的 SwanLab `0.10.2`，并包含 ONNX Runtime
+校验依赖；不需要本机的临时 SDK 路径。已有环境更新前先停止其训练，勿在运行中升级。
+
 该命令从头训练（`resume=False`，初始学习率 `1e-3`），目标保存到
-`model_200000.pt`。动作延迟在 reset 时采样，29 个关节共用，本回合固定：
-0～8 个物理步 × 5 ms。不改观测、PD 内环反馈或 384 输入／29 输出部署接口。
+`model_200000.pt`。使用 `joint_velocity_tustin_v1`、截止频率 20 Hz；
+不改变 PD、AMP 或 384 输入／29 输出接口。20 Hz 指截止频率，不是观测采样频率。
 
 从已有 V4 检查点续训（`run_dir` 是 V4 日志根目录下的实验目录名）：
 
@@ -113,7 +125,7 @@ python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
   --agent.load-checkpoint 'model_<iter>.pt' \
   --resume-optimizer True --target-iteration 200001 \
   --enable-nan-guard True \
-  --swanlab-project locomotion --swanlab-experiment-name v4_delay_resume
+  --swanlab-project locomotion --swanlab-experiment-name v4_feedback20_resume
 ```
 
 加载模型、归一化、优化器和课程时钟；目标是最终轮次，不是额外训练 200000 轮。
@@ -153,7 +165,8 @@ python scripts/play.py BXI-ELF3-AMP-Rough-V4 \
   --num-envs 20 --export-onnx True
 ```
 
-播放时也会采样 0～40 ms 延迟。ONNX 不包含延迟缓冲，真机不要人为增加延迟。
+播放时也启用 20 Hz 速度观测滤波。ONNX 只包含策略，部署端须提供匹配的速度反馈；
+若硬件速度反馈已具备相同滤波，不要再重复滤波。
 训练正在占用 GPU 时，建议先用 `--num-envs 1` 播放。
 
 ## 运动数据准备

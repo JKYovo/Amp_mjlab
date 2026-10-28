@@ -82,7 +82,14 @@ Main tasks:
 
 The recommended V4 task uses TienKung GRAVEL without `terrain_scan`, the
 walking-only `amp_v4/WalkandRun` reference set (no running clips), no recovery
-reset or recovery AMP data, and randomized 0--40 ms position-target delay.
+reset or recovery AMP data, no additional action delay, and DWAQ's 20 Hz
+Tustin joint-velocity observation filter, updated at every 5 ms physics step.
+
+2026-10-27: fixed the incomplete geometry-only DWAQ port. All joint armatures
+now use `0.01`, with DWAQ training effort limits and original AMP rewards.
+Later reward-engineering/stand-pose experiments are disabled. PhysX's solver
+speed cap has no direct built-in MuJoCo position-actuator equivalent; see
+[the V4 notes](docs/ELF3_V4_ZH.md) for the explicit backend limitations.
 
 ## Training
 
@@ -97,10 +104,18 @@ source .venv/bin/activate
 python scripts/train.py BXI-ELF3-AMP-Rough-V4 --env.scene.num-envs=4096 --enable-nan-guard True
 ```
 
+This entry replaces the previous recommendation: corrected DWAQ robot assets,
+20 Hz feedback, original AMP rewards and isolated-snapshot ONNX export. The
+canonical MJCF itself carries the corrected armatures/effort limits; no local
+DWAQ checkout or manual asset swap is required. Extra delay is not enabled.
+ELF3 requirements use the validated SwanLab `0.10.2` SDK and include ONNX Runtime
+for export checks; no temporary SDK path is needed. Stop training before upgrading
+dependencies in an existing environment.
+
 This command starts fresh (`resume=False`, initial LR `1e-3`) and targets
-`model_200000.pt`. Delay is sampled at reset, shared by all 29 joints and held
-for the episode: 0--8 physics steps x 5 ms. Observations, PD feedback and the
-384-input/29-output deployment interface are unchanged.
+`model_200000.pt`. The joint_velocity_tustin_v1 filter has a 20 Hz cutoff;
+the physical PD loop still uses raw velocity. AMP and the 384-input/29-output
+interface are unchanged. The cutoff is not a 20 Hz observation sample rate.
 
 Resume a V4 checkpoint (run name is a directory under the V4 log root):
 
@@ -111,7 +126,7 @@ python scripts/train.py BXI-ELF3-AMP-Rough-V4 \
   --agent.load-checkpoint 'model_<iter>.pt' \
   --resume-optimizer True --target-iteration 200001 \
   --enable-nan-guard True \
-  --swanlab-project locomotion --swanlab-experiment-name v4_delay_resume
+  --swanlab-project locomotion --swanlab-experiment-name v4_feedback20_resume
 ```
 
 This restores the model, normalization, optimizer and curriculum clock. The
@@ -154,8 +169,9 @@ python scripts/play.py BXI-ELF3-AMP-Rough-V4 \
   --num-envs 20 --export-onnx True
 ```
 
-Playback also samples 0--40 ms latency. The exported ONNX contains no delay
-buffer; do not add artificial delay on the real robot. Use `--num-envs 1` when
+Playback uses the same 20 Hz observation filter. ONNX contains only the policy;
+provide matching velocity feedback at deployment without duplicating an existing
+hardware filter. Use `--num-envs 1` when
 training is already occupying the GPU.
 
 ## Motion Data Preparation

@@ -8,7 +8,7 @@ INSTALL_REQUIRES = [
     "mujoco-warp==3.8.1",
     "warp-lang==1.12.0",
     "scipy==1.17.0",
-    "swanlab>=0.8,<0.9",
+    "swanlab>=0.10.2,<0.11",
 ]
 
 # Installation operation

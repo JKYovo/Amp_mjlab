@@ -147,5 +147,5 @@ def elf3_amp_v4_main_ppo_runner_cfg() -> RslRlAmpRunnerCfg:
   """Recommended V4 fresh run using only the walking AMP subset."""
   cfg = elf3_amp_v4_loco_ppo_runner_cfg()
   cfg.experiment_name = 'elf3_amp_locomotion_v4'
-  cfg.run_name = 'v4_gravel_walk_delay_fresh'
+  cfg.run_name = 'v4_gravel_dwaq_asset_feedback20_fresh'
   return cfg

@@ -23,6 +23,7 @@ from src.tasks.amp_loco.mdp.rough_height import (
 )
 from src.tasks.amp_loco.mdp.tienkung_terrain import TienKungGravelTerrainCfg
 from src.tasks.amp_loco.mdp.delayed_action import DelayedJointPositionActionCfg
+from src.tasks.amp_loco.mdp.velocity_feedback import FeedbackJointPositionActionCfg, joint_vel_feedback_rel
 from src.tasks.amp_loco.mdp.terrain import elf3_v4_rough_terrain_cfg
 from src.tasks.amp_loco.ampmotion_loader import MotionLoader
 from rsl_rl.utils.motion_loader import AMPLoader
@@ -63,8 +64,9 @@ class V4Test(unittest.TestCase):
             self.assertIsNone(init.params['recovery_dir'])
             self.assertEqual(init.params['delay_reset_env_ratio'], 0.)
             self.assertEqual(init.params['max_delay_steps'], 0)
-            for attr in ('sim', 'commands', 'rewards', 'terminations', 'observations', 'curriculum'):
+            for attr in ('sim', 'commands', 'terminations', 'curriculum'):
                 self.assertEqual(getattr(cfg, attr), getattr(full, attr))
+            self.assertEqual(cfg.rewards, full.rewards)
             self.assertEqual(cfg.events['base_com'], full.events['base_com'])
             for attr in ('terrain_type', 'terrain_generator', 'max_init_terrain_level'):
                 self.assertEqual(getattr(cfg.scene.terrain, attr), getattr(full.scene.terrain, attr))
@@ -148,9 +150,10 @@ class V4Test(unittest.TestCase):
             self.assertEqual(cfg.events['init_motion_loader'].params['delay_reset_env_ratio'], 0.)
             self.assertIsNone(cfg.events['init_motion_loader'].params['recovery_dir'])
             action = cfg.actions['joint_pos']
-            self.assertIs(type(action), DelayedJointPositionActionCfg)
-            self.assertEqual(action.delay_min_lag, 0)
-            self.assertEqual(action.delay_max_lag, 8)
+            self.assertIs(type(action), FeedbackJointPositionActionCfg)
+            self.assertEqual(action.cutoff_hz, 20.)
+            for group in ('actor', 'critic'):
+                self.assertIs(cfg.observations[group].terms['joint_vel'].func, joint_vel_feedback_rel)
             self.assertEqual(Path(cfg.events['init_motion_loader'].params['motion_dir']), OUTPUT/'WalkandRun')
             self.assertEqual(cfg.events['reset_from_motion'].params['motion_dir'], str(OUTPUT/'WalkandRun'))
             interior = cfg.events['interior_terrain_origins']
@@ -176,7 +179,7 @@ class V4Test(unittest.TestCase):
         self.assertEqual(runner.algorithm.learning_rate, .001)
         self.assertEqual(runner.amp_motion_files, str(OUTPUT/'WalkandRun'))
         self.assertEqual(runner.experiment_name, 'elf3_amp_locomotion_v4')
-        self.assertEqual(runner.run_name, 'v4_gravel_walk_delay_fresh')
+        self.assertEqual(runner.run_name, 'v4_gravel_dwaq_asset_feedback20_fresh')
         # V4 must not mutate the registered V3.1 configurations.
         self.assertEqual(v3.commands['twist'].turning_max_abs_ang_vel, 2.)
         self.assertEqual(v3.scene.terrain.terrain_type, 'plane')

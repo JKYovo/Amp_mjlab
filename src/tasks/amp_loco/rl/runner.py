@@ -1,5 +1,6 @@
 import os
 import inspect
+from copy import deepcopy
 
 import torch
 import wandb
@@ -13,7 +14,7 @@ from rsl_rl.runners.amp_on_policy_runner import AmpOnPolicyRunner
 
 
 class _OnnxPolicyWrapper(torch.nn.Module):
-  """Thin wrapper that exposes ``act_inference`` as ``forward`` for ONNX export.
+  """Own an isolated snapshot of AMP's deterministic MLP inference path.
   
   Includes the obs normalizer so the exported ONNX model expects raw observations
   and C++ deployment does not need to implement normalization separately.
@@ -21,13 +22,17 @@ class _OnnxPolicyWrapper(torch.nn.Module):
 
   def __init__(self, actor_critic, obs_normalizer=None):
     super().__init__()
-    self.actor_critic = actor_critic
-    self.obs_normalizer = obs_normalizer
+    # ActorCritic.act_inference is exactly actor(obs). Copy only that network,
+    # not the entire policy: its cached action distribution can contain
+    # non-leaf tensors from PPO that PyTorch cannot deepcopy. Never register
+    # live training modules here: eval()/cpu() recurse through child modules.
+    self.actor = deepcopy(actor_critic.actor)
+    self.obs_normalizer = deepcopy(obs_normalizer) if obs_normalizer is not None else None
 
   def forward(self, obs):
     if self.obs_normalizer is not None:
       obs = self.obs_normalizer(obs)
-    return self.actor_critic.act_inference(obs)
+    return self.actor(obs)
 
 
 def _onnx_export_kwargs_single_file() -> dict:
@@ -115,16 +120,12 @@ class AMPOnPolicyRunner(AmpOnPolicyRunner):
   def _export_policy_to_onnx(self, path: str, filename: str = "policy.onnx"):
     """Export the actor network to ONNX using the local ActorCritic model.
     
-    The exported model includes the obs normalizer (if empirical_normalization
-    is enabled) so that the ONNX model expects raw observations directly.
+    The exported model includes a snapshot of the obs normalizer (if enabled)
+    so that the ONNX model expects raw observations directly. All device/mode
+    changes apply only to copies, even when export raises an exception.
     """
     policy = self.alg.policy
-    # Include normalizer in the ONNX model if empirical normalization is used
-    obs_normalizer = None
-    if self.empirical_normalization:
-      obs_normalizer = self.obs_normalizer
-      obs_normalizer.to("cpu")
-      obs_normalizer.eval()
+    obs_normalizer = self.obs_normalizer if self.empirical_normalization else None
     wrapper = _OnnxPolicyWrapper(policy, obs_normalizer)
     wrapper.to("cpu")
     wrapper.eval()
@@ -143,10 +144,8 @@ class AMPOnPolicyRunner(AmpOnPolicyRunner):
       **_onnx_export_kwargs_single_file(),
     )
     _inline_external_onnx_data(os.path.join(path, filename))
-    # move policy back to training device
-    policy.to(self.device)
-    if obs_normalizer is not None:
-      obs_normalizer.to(self.device)
+    # Live policy/normalizer never left their original device or mode. In
+    # particular, do not freeze observation statistics after the first save.
 
   def save(self, path: str, infos=None):
     env = self.env.unwrapped

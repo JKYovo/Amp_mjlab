@@ -30,8 +30,10 @@ def mock_env(n=3):
 
 class ActionDelayTest(unittest.TestCase):
   def test_only_action_config_changes(self):
+    from src.tasks.amp_loco.config.elf3.env_cfgs import elf3_amp_rough_v4_env_cfg
+    from src.tasks.amp_loco.config.elf3.rl_cfg import elf3_amp_v4_ppo_runner_cfg
     for play in (False, True):
-      base = load_env_cfg('BXI-ELF3-AMP-Rough-V4', play=play)
+      base = elf3_amp_rough_v4_env_cfg(play=play)
       delayed = load_env_cfg('BXI-ELF3-AMP-Rough-V4-Delay', play=play)
       for f in fields(base):
         if f.name == 'scene':
@@ -47,7 +49,7 @@ class ActionDelayTest(unittest.TestCase):
       self.assertAlmostEqual(action.delay_max_lag * delayed.sim.mujoco.timestep, .04)
       self.assertEqual(delayed.decimation, 4)
     self.assertEqual(load_rl_cfg('BXI-ELF3-AMP-Rough-V4-Delay'),
-                     load_rl_cfg('BXI-ELF3-AMP-Rough-V4'))
+                     elf3_amp_v4_ppo_runner_cfg())
 
   def test_zero_lag_exactly_matches_base_action(self):
     env = mock_env()

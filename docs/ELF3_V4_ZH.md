@@ -1,5 +1,47 @@
 # ELF3 V4：恢复旧 GRAVEL 地形盲走 + walking-only AMP
 
+2026-10-28：唯一推荐入口仍为 `BXI-ELF3-AMP-Rough-V4`，现默认使用下述
+DWAQ 资产契约 + 20 Hz 反馈 + 原版 AMP 奖励 + 安全 ONNX 导出。旧延迟配置
+仅保留在明确命名的 `Rough-V4-Delay` 历史实验入口，不是推荐配置。
+资产目录内的 `xmls/elf3.xml` 本身也已固化全部 29 关节 `armature=0.01` 和
+DWAQ 力矩限幅（关节和独立 torque motor 两处），直接读取 XML 不再得到旧参数。
+这与 2026-10-27 已用于训练的运行时覆盖结果相同，未改变当前训练的动力学。
+几何、刚体质量/惯量、网格不变；XML 的派生修改和新 SHA-256 已写入 provenance。
+推荐配置不加载旧资产配方，也没有本机 `/tmp` DWAQ 仓库依赖。
+
+2026-10-23 推荐配置更新：`BXI-ELF3-AMP-Rough-V4` 使用天工 GRAVEL、
+walking-only AMP、不带起身、无额外动作延迟；actor/critic 的关节速度观测
+改为 DWAQ a14f9d5 的 `joint_velocity_tustin_v1`，截止频率 20 Hz，
+每个 5 ms 物理步更新。PD、奖励和 AMP 保持原始速度；reset 使用当前
+真实速度初始化滤波状态。原 `Rough-V4-Delay` 保留作独立旧实验。
+
+2026-10-27 修正之前不完整的资产移植：原 MJCF 和 34 个网格虽然除 meshdir
+路径外一致，但此前漏掉了 DWAQ `elf3.py` 的训练执行器覆盖参数。现在运行时
+29 个关节的附加惯量均为 `0.01`，力矩上限按同提交 `contract.json` 设置，
+同时作用于关节和重新创建的位置执行器；腰 yaw、髋 pitch/roll 上限改为 100。
+Kp/Kd、home 和 action scale 已核对一致。元数据保存在
+`src/assets/robots/elf3/dwaq_contract.json` 和 `dwaq_provenance.json`。
+没有使用本机 DWAQ 的未提交资产。
+
+推荐任务恢复原版 V4 AMP 奖励：撤掉后来新增的低速容差/Huber 跟踪修改、
+躯干/腰部运动惩罚及软站姿修复，仅保留 20 Hz 关节速度观测滤波和上述资产修复。
+原有脚间安全距离、零指令腿部站姿、起步专项训练、采样、GRAVEL 和数据集不变。
+
+引擎边界：DWAQ 的 PhysX `velocity_limit_sim=20 rad/s` 没有 mjlab 内置位置
+执行器直接等效字段，已保存在契约中，但未伪称在 MuJoCo 中实现同一求解器限速。
+不裁剪真实关节速度、不替换 PD 或引入新电机模型；两个引擎不保证数值等效。
+
+2026-10-27 自动 ONNX 导出修复：旧实现引用训练模块后调用 `eval()`，未恢复
+训练模式，导致 actor 归一化在第一次保存（0 轮）后停止更新。现在只复制 actor
+MLP 和观测归一化器后导出，不移动或切换任何训练对象；导出失败也不影响其状态。
+ONNX 内固定统计量是正常的，不能因此冻结训练中的统计量。既有 `until=1e8`
+样本上限保留：达到上限后的正常停止更新，与此前只积累 98304 样本的错误冻结不同。
+续训保留已有统计量并恢复更新，不重置均值/方差，不改变奖励、资产、滤波或 PPO。
+
+训练和 play 自动使用同一滤波实现。ONNX 仅导出策略，真机输入需匹配
+训练速度反馈；硬件已等效滤波时不要重复。20 Hz 是截止频率，不是采样率。
+其余下文涉及带起身的内容描述保留的旧 Delay 任务，不代表推荐任务启用起身。
+
 任务：`BXI-ELF3-AMP-Rough-V4`。默认从头训练，`resume=False`，初始学习率
 `1e-3`、自适应调度，目标保存至 `model_200000.pt`。没有写入本机 V3.1
 续训路径，也不会自动停止或替换正在运行的任务。
@@ -14,7 +56,7 @@
 
 | 任务 | 地形 | 起身 reset / AMP 起身参考 | 日志根目录（`logs/rsl_rl/` 下） |
 | --- | --- | --- | --- |
-| `BXI-ELF3-AMP-Rough-V4` | 旧 GRAVEL 条带地形 | 有 / 有 | `elf3_amp_locomotion_v4` |
+| `BXI-ELF3-AMP-Rough-V4` | 旧 GRAVEL 条带地形 | 无 / 无；20 Hz dq 观测滤波 | `elf3_amp_locomotion_v4` |
 | `BXI-ELF3-AMP-Rough-V4-Loco` | 旧 GRAVEL 条带地形 | 无 / 无 | `elf3_amp_locomotion_v4_loco` |
 | `BXI-ELF3-AMP-Rough-V4-Delay` | 旧 GRAVEL 条带地形 | 有 / 有；另加0～40 ms动作延迟 | `elf3_amp_locomotion_v4` |
 
@@ -138,8 +180,9 @@ turning_max_abs_ang_vel = 2.0
 Heading 模式开启，只对相应的混合运动环境启用，航向误差换算出的 yaw
 命令同样受 ±1.0 限制；原地转向保持直接角速度命令。
 
-保留网络、AMP/PPO 参数和 V4 的 40% 起身环境。V4 专用奖励与起步训练
-见下节；V3/V3.1 的奖励、指令和重置不受这些覆盖影响。
+保留网络和 AMP/PPO 参数。推荐 V4 不带起身；40% 起身环境仅属于旧 Delay
+对照任务。V4 专用奖励与起步训练见下节；V3/V3.1 的奖励、指令和重置逻辑不受
+这些覆盖影响，但所有 ELF3 入口现在共享已修复的 DWAQ 机器人资产。
 
 ## V4 脚部安全与静止起步训练
 
@@ -265,6 +308,8 @@ AMP 各段期望采样概率变为 1/16：保留动作的相对占比会上升�
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m scripts.check_elf3_dwaq_asset --device cpu --output /tmp/elf3_asset_cpu_check.json
+.venv/bin/python -m scripts.check_elf3_feedback --num-envs 32 --steps 120
 .venv/bin/python -m scripts.check_elf3_v4 --num-envs 16 --steps 120
 # 全尺寸倒地接触容量测试，不加载策略、不训练、不写 SwanLab：
 .venv/bin/python -m scripts.check_elf3_v4 --num-envs 4096 --steps 1000 \
@@ -285,8 +330,10 @@ AMP 各段期望采样概率变为 1/16：保留动作的相对占比会上升�
 
 ## 独立的无起身任务：V4-Loco
 
-任务名：`BXI-ELF3-AMP-Rough-V4-Loco`。保留带起身的 V4 任务，二者共享上面的
-腿部安全奖励和起步专项实现，不自动替换正在运行的训练。
+任务名：`BXI-ELF3-AMP-Rough-V4-Loco`。这是保留的无滤波对照入口；推荐任务
+`BXI-ELF3-AMP-Rough-V4` 在它的基础上只加入 20 Hz 关节速度观测滤波。
+二者共享上述腿部安全奖励、起步专项及新 DWAQ 资产，不自动替换正在运行的训练。
+带起身配置仅保留在 `BXI-ELF3-AMP-Rough-V4-Delay` 历史对照入口。
 
 - 起身 reset 比例为 0，`recovery_dir=None`，不安装延迟终止管理器。
   触发现有倒地终止条件后在正常控制步 reset，不再等待 250 步尝试起身。
@@ -294,7 +341,8 @@ AMP 各段期望采样概率变为 1/16：保留动作的相对占比会上升�
   弧线走路、侧移、转向和静止；不再把 Recovery 的起身动作作为专家。
   动作帧 reset 同样只使用这些非起身数据；起步专项另用默认零速度站姿。
   现有 `amp_v4/Recovery` 文件保留不动。
-- 地形、COM 随机化、速度范围、观测接口、奖励定义/权重、网络及 PPO 设置均与 V4 相同。
+- 地形、COM 随机化、速度范围、观测维度、奖励定义/权重、网络及 PPO 设置均与 V4 相同，
+  但 V4-Loco 的关节速度观测未经 20 Hz 滤波，因此部署时不能把两个入口混用。
   由于没有延迟起身环境，原有起身环境奖励掩码不再生效；AMP 剩余片段期望权重为 1/15。
 - 默认从头训练，`resume=False`、初始 LR `1e-3`、目标 `model_200000.pt`，
   独立保存到 `logs/rsl_rl/elf3_amp_locomotion_v4_loco/`。未写入本机续训参数。

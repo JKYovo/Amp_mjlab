@@ -28,6 +28,7 @@ from src.assets.robots.elf3.elf3_constants import (
 from src.tasks.amp_loco.amp_env_cfg import make_amp_env_cfg
 from src.tasks.amp_loco.mdp.command import TurningVelocityCommandCfg
 from src.tasks.amp_loco.mdp.delayed_action import DelayedJointPositionActionCfg
+from src.tasks.amp_loco.mdp.velocity_feedback import FeedbackJointPositionActionCfg, joint_vel_feedback_rel
 from src.tasks.amp_loco.mdp.rough_height import (
   assign_interior_terrain_origins,
   root_height_below_terrain,
@@ -459,16 +460,17 @@ def elf3_amp_rough_v4_loco_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def elf3_amp_rough_v4_main_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Recommended V4: TienKung GRAVEL, walking only, no recovery, 0--40 ms delay."""
+  """Recommended V4: original GRAVEL AMP rewards with 20 Hz dq feedback only."""
   cfg = elf3_amp_rough_v4_loco_env_cfg(play=play)
   if not math.isclose(cfg.sim.mujoco.timestep, .005):
     raise ValueError("V4 main task expects 5 ms physics steps")
   base = cfg.actions['joint_pos']
-  cfg.actions['joint_pos'] = DelayedJointPositionActionCfg(
+  cfg.actions['joint_pos'] = FeedbackJointPositionActionCfg(
     **{f.name: deepcopy(getattr(base, f.name)) for f in fields(base) if f.init},
-    delay_min_lag=0,
-    delay_max_lag=8,
+    cutoff_hz=20.0,
   )
+  for group in ('actor', 'critic'):
+    cfg.observations[group].terms['joint_vel'].func = joint_vel_feedback_rel
   return cfg
 
 
